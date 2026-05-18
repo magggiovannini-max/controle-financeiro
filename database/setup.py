@@ -34,6 +34,18 @@ def criar_tabelas():
         )
     """)
 
+    # --- Tabela de outros recebimentos (renda extra além dos salários) ---
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS outros_recebimentos (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            periodo_id INTEGER NOT NULL,
+            descricao  TEXT NOT NULL,
+            valor      REAL NOT NULL,
+            ordem      INTEGER DEFAULT 0,
+            FOREIGN KEY (periodo_id) REFERENCES periodos(id)
+        )
+    """)
+
     # --- Tabela de lançamentos (cada gasto ou conta) ---
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS lancamentos (
@@ -84,14 +96,27 @@ def popular_categorias_padrao():
 
 
 def migrar_banco():
-    """Adiciona colunas novas sem apagar dados existentes."""
+    """Adiciona colunas / tabelas novas sem apagar dados existentes."""
     conn = obter_conexao()
     cursor = conn.cursor()
+    # Coluna ordem em lancamentos (migração antiga)
     try:
         cursor.execute("ALTER TABLE lancamentos ADD COLUMN ordem INTEGER DEFAULT 0")
         conn.commit()
     except Exception:
-        pass  # coluna já existe
+        pass
+    # Tabela outros_recebimentos pode não existir em bancos antigos
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS outros_recebimentos (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            periodo_id INTEGER NOT NULL,
+            descricao  TEXT NOT NULL,
+            valor      REAL NOT NULL,
+            ordem      INTEGER DEFAULT 0,
+            FOREIGN KEY (periodo_id) REFERENCES periodos(id)
+        )
+    """)
+    conn.commit()
     conn.close()
 
 

@@ -1,9 +1,11 @@
+import time
 import flet as ft
 from datetime import date
 
 from models.periodo import obter_ou_criar_periodo, atualizar_valores_periodo, calcular_resumo
 from models.lancamento import (
     criar_lancamento,
+    atualizar_lancamento,
     remover_lancamento,
     mover_lancamento,
     reordenar_lancamentos,
@@ -11,6 +13,12 @@ from models.lancamento import (
 )
 from utils.formatters import formatar_moeda, nome_mes
 from database.connection import obter_conexao
+from models.outro_recebimento import (
+    criar_outro_recebimento,
+    atualizar_outro_recebimento,
+    remover_outro_recebimento,
+    buscar_outros_recebimentos,
+)
 
 
 def _buscar_categorias() -> list:
@@ -47,7 +55,8 @@ class TelaMensal:
             focused_border_color="#26C6DA",
             cursor_color="#26C6DA",
             color="#E0E0E0",
-            text_size=18,
+            text_size=15,
+            dense=True,
         )
         self._campo_30 = ft.TextField(
             hint_text="0,00",
@@ -56,7 +65,8 @@ class TelaMensal:
             focused_border_color="#7C4DFF",
             cursor_color="#7C4DFF",
             color="#E0E0E0",
-            text_size=18,
+            text_size=15,
+            dense=True,
         )
         self._resumo_row = ft.Row(spacing=12)
         self._ilhas_row = ft.Row(
@@ -72,6 +82,13 @@ class TelaMensal:
         self._rec_corpo = None       # ft.Column com os inputs (definido em construir())
         self._rec_card = None        # ft.Container do card inteiro
         self._rec_chevron_btn = None # ft.IconButton do toggle
+
+        # Outros recebimentos
+        self.total_outros = 0.0
+        self._outros_rec_col = ft.Column(spacing=3, scroll=ft.ScrollMode.AUTO)
+        self._outros_rec_total_text = ft.Text(
+            "", size=12, color="#66BB6A", weight=ft.FontWeight.W_500
+        )
 
     # ------------------------------------------------------------------ #
     #  Dados                                                               #
@@ -140,6 +157,424 @@ class TelaMensal:
             self._rec_card.update()
 
     # ------------------------------------------------------------------ #
+    #  Outros recebimentos                                                 #
+    # ------------------------------------------------------------------ #
+
+    def _atualizar_outros_rec(self):
+        """Busca os outros recebimentos do DB e actualiza a coluna visual."""
+        outros = buscar_outros_recebimentos(self.periodo["id"])
+        self.total_outros = sum(r["valor"] for r in outros)
+        self._outros_rec_col.controls = self._construir_outros_items(outros)
+        self._outros_rec_total_text.value = (
+            formatar_moeda(self.total_outros) if self.total_outros > 0 else ""
+        )
+
+    def _construir_outros_items(self, outros: list) -> list:
+        """Constrói as linhas de outros recebimentos com o mesmo design das ilhas."""
+        if not outros:
+            return [
+                ft.Text("Nenhum item adicionado", size=11, color="#3a3a5c", italic=True)
+            ]
+
+        def _fmt_edit(v: float) -> str:
+            return str(int(v)) if v == int(v) else f"{v:.2f}".replace(".", ",")
+
+        def _make_controles(item):
+            """Cria os controles de uma linha isolando o escopo de cada item."""
+            _ultimo_clique = [0.0]
+
+            texto_valor = ft.Text(formatar_moeda(item["valor"]), size=13, color="#E0E0E0")
+
+            campo_inline = ft.TextField(
+                keyboard_type=ft.KeyboardType.NUMBER,
+                border_color="#66BB6A",
+                focused_border_color="#66BB6A",
+                cursor_color="#66BB6A",
+                text_size=13,
+                color="#E0E0E0",
+                width=90,
+                dense=True,
+                content_padding=ft.Padding(left=6, right=6, top=2, bottom=2),
+            )
+
+            valor_wrapper = ft.Container(
+                content=texto_valor,
+                tooltip="Duplo clique para editar o valor",
+            )
+
+            def _cancelar_inline(e):
+                try:
+                    valor_wrapper.content = texto_valor
+                    valor_wrapper.on_click = _click_valor
+                    valor_wrapper.update()
+                except Exception:
+                    pass
+
+            def _salvar_inline(e):
+                campo_inline.on_blur = None
+                try:
+                    novo_valor = float(
+                        (campo_inline.value or "").replace(",", ".").strip()
+                    )
+                    if novo_valor <= 0:
+                        raise ValueError()
+                    atualizar_outro_recebimento(
+                        item["id"], item["descricao"], novo_valor
+                    )
+                    self._atualizar_outros_rec()
+                    self.resumo = calcular_resumo(self.periodo["id"])
+                    self._resumo_row.controls = self._construir_resumo()
+                    self.page.update()
+                except ValueError:
+                    campo_inline.on_blur = _cancelar_inline
+                    _cancelar_inline(None)
+
+            def _click_valor(e):
+                agora = time.time()
+                if agora - _ultimo_clique[0] < 0.35:
+                    campo_inline.value = _fmt_edit(item["valor"])
+                    valor_wrapper.content = campo_inline
+                    valor_wrapper.on_click = None
+                    valor_wrapper.update()
+                _ultimo_clique[0] = agora
+
+            valor_wrapper.on_click = _click_valor
+            campo_inline.on_submit = _salvar_inline
+            campo_inline.on_blur = _cancelar_inline
+
+            def _hover_item(e):
+                entrando = e.data == "true"
+                e.control.bgcolor = "#1e2a45" if entrando else "transparent"
+                e.control.border = ft.Border(
+                    left=ft.BorderSide(1, "#ffffff18" if entrando else "transparent"),
+                    right=ft.BorderSide(1, "#ffffff18" if entrando else "transparent"),
+                    top=ft.BorderSide(1, "#ffffff18" if entrando else "transparent"),
+                    bottom=ft.BorderSide(1, "#ffffff18" if entrando else "transparent"),
+                )
+                e.control.update()
+
+            linha_row = ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                controls=[
+                    ft.Row(
+                        spacing=8,
+                        expand=True,
+                        controls=[
+                            ft.Container(
+                                width=6, height=6, bgcolor="#66BB6A", border_radius=3
+                            ),
+                            ft.Text(
+                                item["descricao"],
+                                size=13,
+                                color="#C0C0C0",
+                                expand=True,
+                                no_wrap=True,
+                                overflow=ft.TextOverflow.ELLIPSIS,
+                            ),
+                        ],
+                    ),
+                    ft.Row(
+                        spacing=4,
+                        controls=[
+                            valor_wrapper,
+                            ft.Container(
+                                content=ft.Icon(
+                                    ft.Icons.EDIT_OUTLINED, color="#66BB6A60", size=15
+                                ),
+                                padding=ft.Padding(left=4, right=2, top=4, bottom=4),
+                                border_radius=4,
+                                tooltip="Editar",
+                                on_click=lambda e, it=dict(item): self._abrir_form_edicao_outro_rec(it),
+                            ),
+                            ft.Container(
+                                content=ft.Icon(
+                                    ft.Icons.DELETE_OUTLINE, color="#EF535060", size=15
+                                ),
+                                padding=ft.Padding(left=2, right=4, top=4, bottom=4),
+                                border_radius=4,
+                                tooltip="Remover",
+                                on_click=lambda e, iid=item["id"]: self._remover_outro_rec(iid),
+                            ),
+                        ],
+                    ),
+                ],
+            )
+
+            return ft.Container(
+                padding=ft.Padding(left=8, right=4, top=4, bottom=4),
+                border_radius=8,
+                border=ft.Border(
+                    left=ft.BorderSide(1, "transparent"),
+                    right=ft.BorderSide(1, "transparent"),
+                    top=ft.BorderSide(1, "transparent"),
+                    bottom=ft.BorderSide(1, "transparent"),
+                ),
+                on_hover=_hover_item,
+                content=linha_row,
+            )
+
+        return [_make_controles(item) for item in outros]
+
+    def _abrir_form_outro_rec(self):
+        """Abre o modal para adicionar um novo outro recebimento."""
+        campo_desc = ft.TextField(
+            label="Descrição",
+            hint_text="Ex: Freelance, bônus, aluguel…",
+            autofocus=True,
+            border_color="#66BB6A",
+            focused_border_color="#66BB6A",
+            cursor_color="#66BB6A",
+        )
+        campo_valor = ft.TextField(
+            label="Valor",
+            prefix=ft.Text("R$ "),
+            keyboard_type=ft.KeyboardType.NUMBER,
+            hint_text="0,00",
+            border_color="#66BB6A",
+            focused_border_color="#66BB6A",
+            cursor_color="#66BB6A",
+        )
+
+        modal_ref = [None]
+
+        def _fechar():
+            if modal_ref[0]:
+                modal_ref[0].visible = False
+                self.page.update()
+
+        def salvar(e):
+            erros = False
+
+            if not campo_desc.value or not campo_desc.value.strip():
+                campo_desc.error_text = "Campo obrigatório"
+                erros = True
+            else:
+                campo_desc.error_text = None
+
+            valor = 0.0
+            try:
+                valor = float((campo_valor.value or "").replace(",", ".").strip())
+                if valor <= 0:
+                    raise ValueError()
+                campo_valor.error_text = None
+            except ValueError:
+                campo_valor.error_text = "Digite um valor válido"
+                erros = True
+
+            if erros:
+                self.page.update()
+                return
+
+            try:
+                criar_outro_recebimento(
+                    self.periodo["id"], campo_desc.value.strip(), valor
+                )
+            except Exception as ex:
+                campo_desc.error_text = f"Erro: {ex}"
+                self.page.update()
+                return
+
+            _fechar()
+            self._atualizar_outros_rec()
+            self.resumo = calcular_resumo(self.periodo["id"])
+            self._resumo_row.controls = self._construir_resumo()
+            self.page.update()
+
+        def cancelar(e):
+            _fechar()
+
+        painel = ft.Container(
+            width=380,
+            bgcolor="#1e2235",
+            border_radius=16,
+            padding=ft.Padding(left=24, right=24, top=20, bottom=20),
+            content=ft.Column(
+                tight=True,
+                spacing=12,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Row(spacing=10, controls=[
+                                ft.Container(
+                                    width=10, height=10,
+                                    bgcolor="#66BB6A", border_radius=5,
+                                ),
+                                ft.Text(
+                                    "Novo recebimento",
+                                    size=16,
+                                    weight=ft.FontWeight.W_500,
+                                    color="#E0E0E0",
+                                ),
+                            ]),
+                            ft.IconButton(
+                                icon=ft.Icons.CLOSE,
+                                icon_color="#9E9E9E",
+                                icon_size=18,
+                                on_click=cancelar,
+                            ),
+                        ],
+                    ),
+                    ft.Divider(color="#ffffff10", height=1),
+                    campo_desc,
+                    campo_valor,
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.END,
+                        spacing=12,
+                        controls=[
+                            ft.TextButton("Cancelar", on_click=cancelar),
+                            ft.FilledButton("Salvar", on_click=salvar),
+                        ],
+                    ),
+                ],
+            ),
+        )
+
+        modal = ft.Container(
+            expand=True,
+            bgcolor="#000000bb",
+            alignment=ft.Alignment(x=0, y=0),
+            content=painel,
+        )
+        modal_ref[0] = modal
+        self.page.overlay.append(modal)
+        self.page.update()
+
+    def _abrir_form_edicao_outro_rec(self, item: dict):
+        """Abre o modal de edição pré-preenchido para um outro recebimento."""
+        campo_desc = ft.TextField(
+            label="Descrição",
+            value=item["descricao"],
+            autofocus=True,
+            border_color="#66BB6A",
+            focused_border_color="#66BB6A",
+            cursor_color="#66BB6A",
+        )
+        campo_valor = ft.TextField(
+            label="Valor",
+            prefix=ft.Text("R$ "),
+            keyboard_type=ft.KeyboardType.NUMBER,
+            value=str(item["valor"]).replace(".", ","),
+            border_color="#66BB6A",
+            focused_border_color="#66BB6A",
+            cursor_color="#66BB6A",
+        )
+
+        modal_ref = [None]
+
+        def _fechar():
+            if modal_ref[0]:
+                modal_ref[0].visible = False
+                self.page.update()
+
+        def salvar(e):
+            erros = False
+
+            if not campo_desc.value or not campo_desc.value.strip():
+                campo_desc.error_text = "Campo obrigatório"
+                erros = True
+            else:
+                campo_desc.error_text = None
+
+            valor = 0.0
+            try:
+                valor = float((campo_valor.value or "").replace(",", ".").strip())
+                if valor <= 0:
+                    raise ValueError()
+                campo_valor.error_text = None
+            except ValueError:
+                campo_valor.error_text = "Digite um valor válido"
+                erros = True
+
+            if erros:
+                self.page.update()
+                return
+
+            try:
+                atualizar_outro_recebimento(
+                    item["id"], campo_desc.value.strip(), valor
+                )
+            except Exception as ex:
+                campo_desc.error_text = f"Erro: {ex}"
+                self.page.update()
+                return
+
+            _fechar()
+            self._atualizar_outros_rec()
+            self.resumo = calcular_resumo(self.periodo["id"])
+            self._resumo_row.controls = self._construir_resumo()
+            self.page.update()
+
+        def cancelar(e):
+            _fechar()
+
+        painel = ft.Container(
+            width=380,
+            bgcolor="#1e2235",
+            border_radius=16,
+            padding=ft.Padding(left=24, right=24, top=20, bottom=20),
+            content=ft.Column(
+                tight=True,
+                spacing=12,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Row(spacing=10, controls=[
+                                ft.Container(
+                                    width=10, height=10,
+                                    bgcolor="#66BB6A", border_radius=5,
+                                ),
+                                ft.Text(
+                                    "Editar recebimento",
+                                    size=16,
+                                    weight=ft.FontWeight.W_500,
+                                    color="#E0E0E0",
+                                ),
+                            ]),
+                            ft.IconButton(
+                                icon=ft.Icons.CLOSE,
+                                icon_color="#9E9E9E",
+                                icon_size=18,
+                                on_click=cancelar,
+                            ),
+                        ],
+                    ),
+                    ft.Divider(color="#ffffff10", height=1),
+                    campo_desc,
+                    campo_valor,
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.END,
+                        spacing=12,
+                        controls=[
+                            ft.TextButton("Cancelar", on_click=cancelar),
+                            ft.FilledButton("Salvar", on_click=salvar),
+                        ],
+                    ),
+                ],
+            ),
+        )
+
+        modal = ft.Container(
+            expand=True,
+            bgcolor="#000000bb",
+            alignment=ft.Alignment(x=0, y=0),
+            content=painel,
+        )
+        modal_ref[0] = modal
+        self.page.overlay.append(modal)
+        self.page.update()
+
+    def _remover_outro_rec(self, rec_id: int):
+        remover_outro_recebimento(rec_id)
+        self._atualizar_outros_rec()
+        self.resumo = calcular_resumo(self.periodo["id"])
+        self._resumo_row.controls = self._construir_resumo()
+        self.page.update()
+
+    # ------------------------------------------------------------------ #
     #  Navegação de mês                                                    #
     # ------------------------------------------------------------------ #
 
@@ -164,6 +599,7 @@ class TelaMensal:
         self._redesenhar()
 
     def _redesenhar(self):
+        self._atualizar_outros_rec()
         self._resumo_row.controls = self._construir_resumo()
         self._ilhas_row.controls = self._construir_ilhas()
         self.page.update()
@@ -375,6 +811,183 @@ class TelaMensal:
         self.page.overlay.append(modal)
         self.page.update()
 
+    def _abrir_form_edicao(self, lancamento: dict, cat: dict):
+        """Abre o modal de edição pré-preenchido com os dados do lançamento."""
+
+        def _iso_para_br(data_iso) -> str:
+            """Converte 'AAAA-MM-DD' → 'DD/MM/AAAA' para exibir no campo."""
+            if not data_iso:
+                return ""
+            p = str(data_iso).split("-")
+            return f"{p[2]}/{p[1]}/{p[0]}" if len(p) == 3 else ""
+
+        campo_desc = ft.TextField(
+            label="Descrição",
+            value=lancamento["descricao"],
+            autofocus=True,
+            border_color="#26C6DA",
+            focused_border_color="#26C6DA",
+            cursor_color="#26C6DA",
+        )
+        campo_valor = ft.TextField(
+            label="Valor",
+            prefix=ft.Text("R$ "),
+            keyboard_type=ft.KeyboardType.NUMBER,
+            value=str(lancamento["valor"]).replace(".", ","),
+            border_color="#26C6DA",
+            focused_border_color="#26C6DA",
+            cursor_color="#26C6DA",
+        )
+        campo_venc = ft.TextField(
+            label="Vencimento (opcional)",
+            hint_text="DD/MM ou DD/MM/AAAA",
+            value=_iso_para_br(lancamento.get("data_vencimento")),
+            border_color="#26C6DA",
+            focused_border_color="#26C6DA",
+            cursor_color="#26C6DA",
+        )
+        origem_group = ft.RadioGroup(
+            value=str(lancamento["origem_pagamento"]),
+            content=ft.Row([
+                ft.Radio(value="15", label="Dia 15"),
+                ft.Radio(value="30", label="Dia 30"),
+            ]),
+        )
+        status_group = ft.RadioGroup(
+            value=lancamento["status"],
+            content=ft.Row([
+                ft.Radio(value="pendente", label="Pendente"),
+                ft.Radio(value="pago",     label="Pago"),
+            ]),
+        )
+
+        modal_ref = [None]
+
+        def _fechar():
+            if modal_ref[0]:
+                modal_ref[0].visible = False
+                self.page.update()
+
+        def _converter_data(texto: str) -> str:
+            partes = texto.strip().split("/")
+            if len(partes) == 2:
+                dia, mes = int(partes[0]), int(partes[1])
+                return f"{self.ano}-{mes:02d}-{dia:02d}"
+            elif len(partes) == 3:
+                dia, mes, ano = int(partes[0]), int(partes[1]), int(partes[2])
+                return f"{ano}-{mes:02d}-{dia:02d}"
+            raise ValueError("Formato inválido")
+
+        def salvar(e):
+            erros = False
+
+            if not campo_desc.value or not campo_desc.value.strip():
+                campo_desc.error_text = "Campo obrigatório"
+                erros = True
+            else:
+                campo_desc.error_text = None
+
+            valor = 0.0
+            try:
+                valor = float((campo_valor.value or "").replace(",", ".").strip())
+                if valor <= 0:
+                    raise ValueError()
+                campo_valor.error_text = None
+            except ValueError:
+                campo_valor.error_text = "Digite um valor válido"
+                erros = True
+
+            data_venc = None
+            if campo_venc.value and campo_venc.value.strip():
+                try:
+                    data_venc = _converter_data(campo_venc.value)
+                    campo_venc.error_text = None
+                except Exception:
+                    campo_venc.error_text = "Use DD/MM ou DD/MM/AAAA"
+                    erros = True
+
+            if erros:
+                self.page.update()
+                return
+
+            try:
+                atualizar_lancamento(
+                    lancamento_id=lancamento["id"],
+                    descricao=campo_desc.value.strip(),
+                    valor=valor,
+                    data_vencimento=data_venc,
+                    origem_pagamento=int(origem_group.value or "15"),
+                    status=status_group.value or "pendente",
+                )
+            except Exception as ex:
+                campo_desc.error_text = f"Erro ao salvar: {ex}"
+                self.page.update()
+                return
+
+            _fechar()
+            self.resumo = calcular_resumo(self.periodo["id"])
+            self._resumo_row.controls = self._construir_resumo()
+            self._ilhas_row.controls = self._construir_ilhas()
+            self.page.update()
+
+        def cancelar(e):
+            _fechar()
+
+        painel = ft.Container(
+            width=420,
+            bgcolor="#1e2235",
+            border_radius=16,
+            padding=ft.Padding(left=24, right=24, top=20, bottom=20),
+            content=ft.Column(
+                tight=True,
+                spacing=12,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Row(spacing=10, controls=[
+                                ft.Container(width=10, height=10, bgcolor=cat["cor"], border_radius=5),
+                                ft.Text(f"Editar — {cat['nome']}", size=16, weight=ft.FontWeight.W_500, color="#E0E0E0"),
+                            ]),
+                            ft.IconButton(
+                                icon=ft.Icons.CLOSE,
+                                icon_color="#9E9E9E",
+                                icon_size=18,
+                                on_click=cancelar,
+                            ),
+                        ],
+                    ),
+                    ft.Divider(color="#ffffff10", height=1),
+                    campo_desc,
+                    campo_valor,
+                    campo_venc,
+                    ft.Text("Pagar com:", size=12, color="#9E9E9E"),
+                    origem_group,
+                    ft.Text("Status:", size=12, color="#9E9E9E"),
+                    status_group,
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.END,
+                        spacing=12,
+                        controls=[
+                            ft.TextButton("Cancelar", on_click=cancelar),
+                            ft.FilledButton("Salvar", on_click=salvar),
+                        ],
+                    ),
+                ],
+            ),
+        )
+
+        modal = ft.Container(
+            expand=True,
+            bgcolor="#000000bb",
+            alignment=ft.Alignment(x=0, y=0),
+            content=painel,
+        )
+        modal_ref[0] = modal
+        self.page.overlay.append(modal)
+        self.page.update()
+
     # ------------------------------------------------------------------ #
     #  Construção visual                                                   #
     # ------------------------------------------------------------------ #
@@ -398,11 +1011,12 @@ class TelaMensal:
     def _construir_resumo(self) -> list:
         v15 = self.periodo["valor_dia_15"]
         v30 = self.periodo["valor_dia_30"]
+        total_recebido = v15 + v30 + self.total_outros
         gasto = self.resumo["gasto_15"] + self.resumo["gasto_30"]
         s15 = v15 - self.resumo["gasto_15"]
         s30 = v30 - self.resumo["gasto_30"]
         return [
-            self._chip_resumo("Total recebido", formatar_moeda(v15 + v30), "#E0E0E0"),
+            self._chip_resumo("Total recebido", formatar_moeda(total_recebido), "#E0E0E0"),
             self._chip_resumo("Comprometido",   formatar_moeda(gasto),     "#EF5350"),
             self._chip_resumo("Livre dia 15",   formatar_moeda(s15), "#26C6DA" if s15 >= 0 else "#EF5350"),
             self._chip_resumo("Livre dia 30",   formatar_moeda(s30), "#7C4DFF" if s30 >= 0 else "#EF5350"),
@@ -451,9 +1065,87 @@ class TelaMensal:
         # Mapa id → índice para determinar direção do arrasto no indicador visual
         id_to_idx = {l["id"]: i for i, l in enumerate(lancamentos)}
 
+        # Helper: formata float para o campo de edição inline (sem símbolo R$)
+        def _fmt_edit(v: float) -> str:
+            return str(int(v)) if v == int(v) else f"{v:.2f}".replace(".", ",")
+
         linhas = []
         for i, l in enumerate(lancamentos):
             cor_status = "#66BB6A" if l["status"] == "pago" else "#FFA726"
+
+            # ── Edição inline de valor ──────────────────────────────────────
+            _ultimo_clique = [0.0]
+
+            texto_valor = ft.Text(formatar_moeda(l["valor"]), size=13, color="#E0E0E0")
+
+            campo_inline = ft.TextField(
+                keyboard_type=ft.KeyboardType.NUMBER,
+                border_color="#26C6DA",
+                focused_border_color="#26C6DA",
+                cursor_color="#26C6DA",
+                text_size=13,
+                color="#E0E0E0",
+                width=90,
+                dense=True,
+                content_padding=ft.Padding(left=6, right=6, top=2, bottom=2),
+            )
+
+            # Wrapper que alterna entre texto e campo
+            valor_wrapper = ft.Container(
+                content=texto_valor,
+                tooltip="Duplo clique para editar o valor",
+            )
+
+            def _cancelar_inline(e):
+                try:
+                    valor_wrapper.content = texto_valor
+                    valor_wrapper.on_click = _click_valor
+                    valor_wrapper.update()
+                except Exception:
+                    pass  # widget pode ter sido desmontado por um redesenho
+
+            def _salvar_inline(
+                e,
+                lid=l["id"], desc=l["descricao"],
+                dv=l.get("data_vencimento"),
+                orig=l["origem_pagamento"], st=l["status"],
+            ):
+                campo_inline.on_blur = None  # evita _cancelar disparar após on_submit
+                try:
+                    novo_valor = float(
+                        (campo_inline.value or "").replace(",", ".").strip()
+                    )
+                    if novo_valor <= 0:
+                        raise ValueError()
+                    atualizar_lancamento(
+                        lancamento_id=lid,
+                        descricao=desc,
+                        valor=novo_valor,
+                        data_vencimento=dv,
+                        origem_pagamento=orig,
+                        status=st,
+                    )
+                    self.resumo = calcular_resumo(self.periodo["id"])
+                    self._resumo_row.controls = self._construir_resumo()
+                    self._ilhas_row.controls = self._construir_ilhas()
+                    self.page.update()
+                except ValueError:
+                    campo_inline.on_blur = _cancelar_inline
+                    _cancelar_inline(None)
+
+            def _click_valor(e, lval=l["valor"]):
+                agora = time.time()
+                if agora - _ultimo_clique[0] < 0.35:
+                    campo_inline.value = _fmt_edit(lval)
+                    valor_wrapper.content = campo_inline
+                    valor_wrapper.on_click = None
+                    valor_wrapper.update()
+                _ultimo_clique[0] = agora
+
+            valor_wrapper.on_click = _click_valor
+            campo_inline.on_submit = _salvar_inline
+            campo_inline.on_blur  = _cancelar_inline
+            # ── fim edição inline ───────────────────────────────────────────
 
             linha_row = ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -474,11 +1166,18 @@ class TelaMensal:
                                 padding=ft.Padding(left=6, right=6, top=2, bottom=2),
                                 content=ft.Text(f"dia {l['origem_pagamento']}", size=10, color="#9E9E9E"),
                             ),
-                            ft.Text(formatar_moeda(l["valor"]), size=13, color="#E0E0E0"),
-                            ft.IconButton(
-                                icon=ft.Icons.DELETE_OUTLINE,
-                                icon_color="#EF535060",
-                                icon_size=16,
+                            valor_wrapper,
+                            ft.Container(
+                                content=ft.Icon(ft.Icons.EDIT_OUTLINED, color="#26C6DA60", size=15),
+                                padding=ft.Padding(left=4, right=2, top=4, bottom=4),
+                                border_radius=4,
+                                tooltip="Editar",
+                                on_click=lambda e, ldata=dict(l), c=cat: self._abrir_form_edicao(ldata, c),
+                            ),
+                            ft.Container(
+                                content=ft.Icon(ft.Icons.DELETE_OUTLINE, color="#EF535060", size=15),
+                                padding=ft.Padding(left=2, right=4, top=4, bottom=4),
+                                border_radius=4,
                                 tooltip="Remover",
                                 on_click=lambda e, lid=l["id"]: self._remover_lancamento(lid),
                             ),
@@ -644,6 +1343,7 @@ class TelaMensal:
 
     def construir(self) -> ft.Control:
         self._carregar_dados()
+        self._atualizar_outros_rec()
         self._resumo_row.controls = self._construir_resumo()
         self._ilhas_row.controls = self._construir_ilhas()
 
@@ -662,34 +1362,104 @@ class TelaMensal:
 
         self._rec_corpo = ft.Column(
             visible=True,
-            spacing=14,
+            spacing=0,
             controls=[
                 ft.Row(
-                    spacing=20,
+                    spacing=0,
+                    vertical_alignment=ft.CrossAxisAlignment.START,
                     controls=[
-                        ft.Column(expand=True, spacing=6, controls=[
-                            ft.Row(spacing=6, controls=[
-                                ft.Container(width=8, height=8, bgcolor="#26C6DA", border_radius=4),
-                                ft.Text("Pagamento dia 15", size=12, color="#9E9E9E"),
-                            ]),
-                            ft.Row(spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
-                                ft.Text("R$", size=14, color="#26C6DA", weight=ft.FontWeight.BOLD),
-                                ft.Container(expand=True, content=self._campo_15),
-                            ]),
-                        ]),
-                        ft.Column(expand=True, spacing=6, controls=[
-                            ft.Row(spacing=6, controls=[
-                                ft.Container(width=8, height=8, bgcolor="#7C4DFF", border_radius=4),
-                                ft.Text("Pagamento dia 30", size=12, color="#9E9E9E"),
-                            ]),
-                            ft.Row(spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=[
-                                ft.Text("R$", size=14, color="#7C4DFF", weight=ft.FontWeight.BOLD),
-                                ft.Container(expand=True, content=self._campo_30),
-                            ]),
-                        ]),
+                        # ── Esquerda: pagamentos dia 15 e dia 30 ─────────────────
+                        ft.Column(
+                            width=195,
+                            spacing=10,
+                            controls=[
+                                ft.Column(spacing=5, controls=[
+                                    ft.Row(spacing=6, controls=[
+                                        ft.Container(width=7, height=7, bgcolor="#26C6DA", border_radius=4),
+                                        ft.Text("Pagamento dia 15", size=11, color="#9E9E9E"),
+                                    ]),
+                                    ft.Row(
+                                        spacing=6,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                        controls=[
+                                            ft.Text("R$", size=13, color="#26C6DA", weight=ft.FontWeight.BOLD),
+                                            ft.Container(expand=True, content=self._campo_15),
+                                        ],
+                                    ),
+                                ]),
+                                ft.Column(spacing=5, controls=[
+                                    ft.Row(spacing=6, controls=[
+                                        ft.Container(width=7, height=7, bgcolor="#7C4DFF", border_radius=4),
+                                        ft.Text("Pagamento dia 30", size=11, color="#9E9E9E"),
+                                    ]),
+                                    ft.Row(
+                                        spacing=6,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                        controls=[
+                                            ft.Text("R$", size=13, color="#7C4DFF", weight=ft.FontWeight.BOLD),
+                                            ft.Container(expand=True, content=self._campo_30),
+                                        ],
+                                    ),
+                                ]),
+                                ft.Text(
+                                    "Enter para salvar e recolher",
+                                    size=9,
+                                    color="#3a3a5c",
+                                    italic=True,
+                                ),
+                            ],
+                        ),
+                        # ── Divisor vertical ─────────────────────────────────────
+                        ft.VerticalDivider(color="#ffffff18", width=33, thickness=1),
+                        # ── Direita: outros recebimentos ─────────────────────────
+                        ft.Column(
+                            expand=True,
+                            spacing=6,
+                            controls=[
+                                ft.Row(
+                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    controls=[
+                                        ft.Row(spacing=8, controls=[
+                                            ft.Container(
+                                                width=7, height=7,
+                                                bgcolor="#66BB6A", border_radius=4,
+                                            ),
+                                            ft.Text(
+                                                "Outros recebimentos",
+                                                size=11,
+                                                color="#9E9E9E",
+                                            ),
+                                        ]),
+                                        ft.Row(
+                                            spacing=2,
+                                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                            controls=[
+                                                self._outros_rec_total_text,
+                                                ft.Container(
+                                                    content=ft.Icon(
+                                                        ft.Icons.ADD_CIRCLE_OUTLINE,
+                                                        color="#66BB6A",
+                                                        size=18,
+                                                    ),
+                                                    padding=ft.Padding(left=6, right=0, top=4, bottom=4),
+                                                    border_radius=4,
+                                                    tooltip="Adicionar recebimento",
+                                                    on_click=lambda e: self._abrir_form_outro_rec(),
+                                                ),
+                                            ],
+                                        ),
+                                    ],
+                                ),
+                                ft.Divider(color="#ffffff10", height=1),
+                                ft.Container(
+                                    height=105,
+                                    content=self._outros_rec_col,
+                                ),
+                            ],
+                        ),
                     ],
                 ),
-                ft.Text("Pressione Enter para salvar e recolher", size=10, color="#3a3a5c", italic=True),
             ],
         )
 
