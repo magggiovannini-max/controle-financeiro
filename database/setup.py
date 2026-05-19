@@ -105,6 +105,18 @@ def migrar_banco():
         conn.commit()
     except Exception:
         pass
+    # Coluna ordem em categorias (para reordenação por arrastar)
+    try:
+        cursor.execute("ALTER TABLE categorias ADD COLUMN ordem INTEGER DEFAULT 0")
+        conn.commit()
+        # Inicializa a ordem com base no id atual
+        cursor.execute("SELECT id FROM categorias WHERE ativa = 1 ORDER BY id")
+        ids = [row[0] for row in cursor.fetchall()]
+        for i, cid in enumerate(ids):
+            cursor.execute("UPDATE categorias SET ordem = ? WHERE id = ?", (i, cid))
+        conn.commit()
+    except Exception:
+        pass
     # Tabela outros_recebimentos pode não existir em bancos antigos
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS outros_recebimentos (
