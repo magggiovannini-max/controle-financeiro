@@ -351,8 +351,7 @@ class TelaMensal:
 
         def _fechar():
             if modal_ref[0]:
-                modal_ref[0].visible = False
-                self.page.update()
+                self._fechar_modal(modal_ref[0])
 
         def salvar(e):
             erros = False
@@ -450,8 +449,7 @@ class TelaMensal:
             content=painel,
         )
         modal_ref[0] = modal
-        self.page.overlay.append(modal)
-        self.page.update()
+        self._abrir_modal(modal)
 
     def _abrir_form_edicao_outro_rec(self, item: dict):
         """Abre o modal de edição pré-preenchido para um outro recebimento."""
@@ -477,8 +475,7 @@ class TelaMensal:
 
         def _fechar():
             if modal_ref[0]:
-                modal_ref[0].visible = False
-                self.page.update()
+                self._fechar_modal(modal_ref[0])
 
         def salvar(e):
             erros = False
@@ -576,14 +573,32 @@ class TelaMensal:
             content=painel,
         )
         modal_ref[0] = modal
-        self.page.overlay.append(modal)
-        self.page.update()
+        self._abrir_modal(modal)
 
     def _remover_outro_rec(self, rec_id: int):
         remover_outro_recebimento(rec_id)
         self._atualizar_outros_rec()
         self.resumo = calcular_resumo(self.periodo["id"])
         self._resumo_row.controls = self._construir_resumo()
+        self.page.update()
+
+    # ------------------------------------------------------------------ #
+    #  Gestão de modais (foco)                                             #
+    # ------------------------------------------------------------------ #
+
+    def _abrir_modal(self, modal: ft.Control):
+        """Registra o modal no overlay e remove _campo_15/_campo_30 do
+        ciclo de Tab enquanto o modal está aberto."""
+        self._campo_15.disabled = True
+        self._campo_30.disabled = True
+        self.page.overlay.append(modal)
+        self.page.update()
+
+    def _fechar_modal(self, modal: ft.Control):
+        """Oculta o modal e devolve o foco aos campos de recebimento."""
+        modal.visible = False
+        self._campo_15.disabled = False
+        self._campo_30.disabled = False
         self.page.update()
 
     # ------------------------------------------------------------------ #
@@ -714,8 +729,7 @@ class TelaMensal:
 
         def _fechar():
             if modal_ref[0]:
-                modal_ref[0].visible = False
-                self.page.update()
+                self._fechar_modal(modal_ref[0])
 
         def _converter_data(texto: str) -> str:
             partes = texto.strip().split("/")
@@ -836,8 +850,7 @@ class TelaMensal:
             content=painel,
         )
         modal_ref[0] = modal
-        self.page.overlay.append(modal)
-        self.page.update()
+        self._abrir_modal(modal)
 
     def _abrir_form_edicao(self, lancamento: dict, cat: dict):
         """Abre o modal de edição pré-preenchido com os dados do lançamento."""
@@ -893,8 +906,7 @@ class TelaMensal:
 
         def _fechar():
             if modal_ref[0]:
-                modal_ref[0].visible = False
-                self.page.update()
+                self._fechar_modal(modal_ref[0])
 
         def _converter_data(texto: str) -> str:
             partes = texto.strip().split("/")
@@ -1013,8 +1025,7 @@ class TelaMensal:
             content=painel,
         )
         modal_ref[0] = modal
-        self.page.overlay.append(modal)
-        self.page.update()
+        self._abrir_modal(modal)
 
     # ------------------------------------------------------------------ #
     #  Construção visual                                                   #
