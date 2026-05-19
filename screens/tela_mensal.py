@@ -85,10 +85,13 @@ class TelaMensal:
 
         # Outros recebimentos
         self.total_outros = 0.0
-        self._outros_rec_col = ft.Column(spacing=3, scroll=ft.ScrollMode.AUTO)
+        self._outros_rec_col = ft.Column(spacing=3, scroll=None)
         self._outros_rec_total_text = ft.Text(
             "", size=12, color="#66BB6A", weight=ft.FontWeight.W_500
         )
+        # Container que envolve a coluna de itens — altura ajustada
+        # dinamicamente para criar o "peek" quando há mais de 3 itens
+        self._outros_rec_scroll_box = ft.Container(content=self._outros_rec_col)
 
     # ------------------------------------------------------------------ #
     #  Dados                                                               #
@@ -168,6 +171,15 @@ class TelaMensal:
         self._outros_rec_total_text.value = (
             formatar_moeda(self.total_outros) if self.total_outros > 0 else ""
         )
+        # Altura dinâmica: ≤ 3 itens → cresce livre; > 3 → trava com peek
+        # do 4º item (~40% visível), sinalizando que há mais para rolar.
+        # Cada item ocupa ≈ 27px (padding 4+4, texto 13pt, spacing 3).
+        if len(outros) > 3:
+            self._outros_rec_col.scroll = ft.ScrollMode.AUTO
+            self._outros_rec_scroll_box.height = 92   # 3 itens + peek do 4º
+        else:
+            self._outros_rec_col.scroll = None
+            self._outros_rec_scroll_box.height = None
 
     def _construir_outros_items(self, outros: list) -> list:
         """Constrói as linhas de outros recebimentos com o mesmo design das ilhas."""
@@ -1451,11 +1463,8 @@ class TelaMensal:
                                         ),
                                     ],
                                 ),
-                                ft.Divider(color="#ffffff10", height=1),
-                                ft.Container(
-                                    height=105,
-                                    content=self._outros_rec_col,
-                                ),
+                                ft.Divider(color="#243355", height=1),
+                                self._outros_rec_scroll_box,
                             ],
                         ),
                     ],
