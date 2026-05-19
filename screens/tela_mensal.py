@@ -87,6 +87,7 @@ class TelaMensal:
         )
         self._dragging_id = None      # ID do lançamento sendo arrastado
         self._dragging_cat_id = None  # ID da ilha de origem do arrasto
+        self._dragging_ilha_id = None # ID da ilha sendo reordenada
 
         # Card de recebimentos recolhível
         self._rec_expandido = True
@@ -1912,10 +1913,14 @@ class TelaMensal:
             # Indicador de inserção: linha vertical à esquerda da ilha alvo
             ind = ft.Container(width=3, border_radius=2, bgcolor="transparent")
 
+            def _drag_start_ilha(e, cid=cat["id"]):
+                self._dragging_ilha_id = cid
+
             draggable = ft.Draggable(
                 group="ilha",
                 data=str(cat["id"]),
                 expand=True,
+                on_drag_start=_drag_start_ilha,
                 content=card,
                 content_when_dragging=fantasma_ilha,
             )
@@ -1931,11 +1936,9 @@ class TelaMensal:
             def _accept(e, target_cid=cat["id"], i=ind):
                 i.bgcolor = "transparent"
                 i.update()
-                try:
-                    src_id = int(e.src_id)
-                except (ValueError, TypeError):
-                    return
-                if src_id != target_cid:
+                src_id = self._dragging_ilha_id
+                self._dragging_ilha_id = None
+                if src_id is not None and src_id != target_cid:
                     reordenar_categorias(src_id, target_cid)
                     self.categorias = _buscar_categorias()
                     self._ilhas_row.controls = self._construir_ilhas()
