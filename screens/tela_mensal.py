@@ -10,6 +10,7 @@ from models.lancamento import (
     mover_lancamento,
     reordenar_lancamentos,
     buscar_lancamentos_por_categoria,
+    copiar_lancamentos_do_periodo,
 )
 from utils.formatters import formatar_moeda, nome_mes
 from database.connection import obter_conexao
@@ -1037,6 +1038,135 @@ class TelaMensal:
         self._abrir_modal(modal)
 
     # ------------------------------------------------------------------ #
+    #  Copiar lançamentos do mês anterior                                  #
+    # ------------------------------------------------------------------ #
+
+    def _abrir_copiar_mes_anterior(self):
+        # Calcula mês/ano anterior
+        if self.periodo["mes"] == 1:
+            mes_ant, ano_ant = 12, self.periodo["ano"] - 1
+        else:
+            mes_ant, ano_ant = self.periodo["mes"] - 1, self.periodo["ano"]
+
+        # Busca período anterior SEM criá-lo se não existir
+        conn = obter_conexao()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM periodos WHERE mes = ? AND ano = ?",
+            (mes_ant, ano_ant),
+        )
+        row = cursor.fetchone()
+        periodo_ant = dict(row) if row else None
+
+        qtd = 0
+        if periodo_ant:
+            cursor.execute(
+                "SELECT COUNT(*) FROM lancamentos WHERE periodo_id = ?",
+                (periodo_ant["id"],),
+            )
+            qtd = cursor.fetchone()[0]
+        conn.close()
+
+        _MESES = [
+            "", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+            "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+        ]
+        nome_ant = f"{_MESES[mes_ant]} {ano_ant}"
+
+        modal_ref = [None]
+
+        def _fechar(e=None):
+            if modal_ref[0]:
+                self._fechar_modal(modal_ref[0])
+
+        def _confirmar(e):
+            if not periodo_ant:
+                _fechar()
+                return
+            copiar_lancamentos_do_periodo(
+                periodo_ant["id"],
+                self.periodo["id"],
+                self.periodo["mes"],
+                self.periodo["ano"],
+            )
+            self.resumo = calcular_resumo(self.periodo["id"])
+            self._resumo_row.controls = self._construir_resumo()
+            self._ilhas_row.controls = self._construir_ilhas()
+            _fechar()
+            self.page.update()
+
+        # Conteúdo varia: sem lançamentos anteriores vs. com
+        if not periodo_ant or qtd == 0:
+            corpo = ft.Column(
+                tight=True,
+                spacing=10,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Icon(ft.Icons.INFO_OUTLINE, color="#9E9E9E", size=32),
+                    ft.Text(
+                        f"Nenhum lançamento encontrado em {nome_ant}.",
+                        size=13,
+                        color="#9E9E9E",
+                        text_align=ft.TextAlign.CENTER,
+                    ),
+                    ft.TextButton("Fechar", on_click=_fechar),
+                ],
+            )
+        else:
+            corpo = ft.Column(
+                tight=True,
+                spacing=10,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Icon(ft.Icons.CONTENT_COPY, color="#26C6DA", size=32),
+                    ft.Text(
+                        f"Copiar {qtd} lançamento{'s' if qtd != 1 else ''} de {nome_ant}?",
+                        size=14,
+                        weight=ft.FontWeight.W_500,
+                        color="#E0E0E0",
+                        text_align=ft.TextAlign.CENTER,
+                    ),
+                    ft.Text(
+                        "Todos chegarão como pendente.\nVencimentos serão ajustados para este mês.",
+                        size=11,
+                        color="#9E9E9E",
+                        text_align=ft.TextAlign.CENTER,
+                    ),
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        spacing=8,
+                        controls=[
+                            ft.TextButton("Cancelar", on_click=_fechar),
+                            ft.FilledButton(
+                                "Copiar",
+                                style=ft.ButtonStyle(
+                                    bgcolor={"": "#26C6DA"},
+                                    color={"": "#000000"},
+                                ),
+                                on_click=_confirmar,
+                            ),
+                        ],
+                    ),
+                ],
+            )
+
+        painel = ft.Container(
+            width=360,
+            bgcolor="#1e2235",
+            border_radius=16,
+            padding=ft.Padding(left=24, right=24, top=24, bottom=24),
+            content=corpo,
+        )
+        modal = ft.Container(
+            expand=True,
+            bgcolor="#000000bb",
+            alignment=ft.Alignment(x=0, y=0),
+            content=painel,
+        )
+        modal_ref[0] = modal
+        self._abrir_modal(modal)
+
+    # ------------------------------------------------------------------ #
     #  Gerenciar categorias                                                #
     # ------------------------------------------------------------------ #
 
@@ -1951,6 +2081,17 @@ class TelaMensal:
                                         icon_color="#E0E0E0",
                                         icon_size=28,
                                         on_click=self._mes_proximo,
+                                    ),
+                                    ft.Container(
+                                        content=ft.Icon(
+                                            ft.Icons.CONTENT_COPY,
+                                            color="#9E9E9E70",
+                                            size=14,
+                                        ),
+                                        padding=ft.Padding(left=0, right=6, top=4, bottom=4),
+                                        border_radius=4,
+                                        tooltip="Copiar lançamentos do mês anterior",
+                                        on_click=lambda e: self._abrir_copiar_mes_anterior(),
                                     ),
                                     ft.Container(
                                         content=ft.Icon(
