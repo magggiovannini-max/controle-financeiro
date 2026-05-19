@@ -6,7 +6,7 @@ from screens.tela_mensal import TelaMensal
 def main(page: ft.Page):
     # --- Configurações básicas da janela ---
     page.title = "Quinza — Controle Financeiro"
-    page.window.maximized = True
+    page.window_maximized = True
     page.window.min_width = 900
     page.window.min_height = 600
     page.theme_mode = ft.ThemeMode.DARK
