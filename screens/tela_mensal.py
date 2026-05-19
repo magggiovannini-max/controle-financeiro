@@ -1726,11 +1726,11 @@ class TelaMensal:
             width=22,
             height=22,
             border_radius=11,
-            bgcolor="#ffffff12",
+            bgcolor="transparent",
             alignment=ft.Alignment(x=0, y=0),
             tooltip="Excluir ilha",
             on_click=lambda e: _abrir_confirm(),
-            content=ft.Icon(ft.Icons.CLOSE, size=11, color="#9E9E9E90"),
+            content=ft.Icon(ft.Icons.CLOSE, size=11, color="#2e3f55"),
         )
 
         def _on_will_accept(e):
