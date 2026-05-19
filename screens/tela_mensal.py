@@ -1313,7 +1313,7 @@ class TelaMensal:
                     spacing=10,
                     controls=[
                         ft.Container(width=10, height=10, bgcolor=cat["cor"], border_radius=5),
-                        ft.Text(cat["nome"], size=14, weight=ft.FontWeight.W_500, color="#E0E0E0"),
+                        ft.Text(cat["nome"], size=13, weight=ft.FontWeight.W_600, color=cat["cor"]),
                     ],
                 ),
                 ft.Row(
