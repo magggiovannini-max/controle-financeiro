@@ -1158,7 +1158,7 @@ class TelaMensal:
                 aviso_txt.visible = False
             _rebuild()
 
-        def _rebuild():
+        def _rebuild(atualizar=True):
             cats = listar_categorias()
             rows = []
             for cat in cats:
@@ -1203,10 +1203,11 @@ class TelaMensal:
             if editando[0] == -1:
                 rows.append(_form_edicao())
             lista_col.controls = rows
-            lista_col.update()
+            if atualizar:
+                lista_col.update()
 
-        # build inicial
-        _rebuild()
+        # build inicial — controle ainda não está na página, sem .update()
+        _rebuild(atualizar=False)
 
         painel = ft.Container(
             width=440,
