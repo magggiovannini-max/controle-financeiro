@@ -4,7 +4,7 @@ from database.connection import obter_conexao
 def listar_categorias() -> list:
     conn = obter_conexao()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM categorias WHERE ativa = 1 ORDER BY id")
+    cursor.execute("SELECT * FROM categorias WHERE ativa = 1 ORDER BY ordem, id")
     cats = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return cats
@@ -30,6 +30,30 @@ def atualizar_categoria(cat_id: int, nome: str, cor: str):
         "UPDATE categorias SET nome = ?, cor = ? WHERE id = ?",
         (nome, cor, cat_id),
     )
+    conn.commit()
+    conn.close()
+
+
+def reordenar_categorias(src_id: int, target_id: int):
+    """Move a categoria src_id para antes de target_id na ordem horizontal."""
+    conn = obter_conexao()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id FROM categorias WHERE ativa = 1 ORDER BY ordem, id"
+    )
+    ids = [row[0] for row in cursor.fetchall()]
+
+    if src_id not in ids or target_id not in ids or src_id == target_id:
+        conn.close()
+        return
+
+    ids.remove(src_id)
+    tgt_idx = ids.index(target_id)
+    ids.insert(tgt_idx, src_id)
+
+    for ordem, cid in enumerate(ids):
+        cursor.execute("UPDATE categorias SET ordem = ? WHERE id = ?", (ordem, cid))
+
     conn.commit()
     conn.close()
 

@@ -26,6 +26,7 @@ from models.categoria import (
     atualizar_categoria,
     remover_categoria,
     contar_lancamentos_categoria,
+    reordenar_categorias,
 )
 
 # Paleta de cores disponíveis para as ilhas
@@ -1890,7 +1891,71 @@ class TelaMensal:
         )
 
     def _construir_ilhas(self) -> list:
-        ilhas = [self._card_ilha(cat) for cat in self.categorias]
+        resultado = []
+
+        for cat in self.categorias:
+            card = self._card_ilha(cat)   # DragTarget group="lancamento", expand=True
+
+            # Placeholder que ocupa o slot enquanto a ilha está sendo arrastada
+            fantasma_ilha = ft.Container(
+                expand=True,
+                bgcolor="#0a1525",
+                border_radius=12,
+                border=ft.Border(
+                    left=ft.BorderSide(2, cat["cor"] + "55"),
+                    right=ft.BorderSide(2, cat["cor"] + "55"),
+                    top=ft.BorderSide(2, cat["cor"] + "55"),
+                    bottom=ft.BorderSide(2, cat["cor"] + "55"),
+                ),
+            )
+
+            # Indicador de inserção: linha vertical à esquerda da ilha alvo
+            ind = ft.Container(width=3, border_radius=2, bgcolor="transparent")
+
+            draggable = ft.Draggable(
+                group="ilha",
+                data=str(cat["id"]),
+                expand=True,
+                content=card,
+                content_when_dragging=fantasma_ilha,
+            )
+
+            def _will_accept(e, i=ind):
+                i.bgcolor = "#7C4DFF"
+                i.update()
+
+            def _leave(e, i=ind):
+                i.bgcolor = "transparent"
+                i.update()
+
+            def _accept(e, target_cid=cat["id"], i=ind):
+                i.bgcolor = "transparent"
+                i.update()
+                try:
+                    src_id = int(e.src_id)
+                except (ValueError, TypeError):
+                    return
+                if src_id != target_cid:
+                    reordenar_categorias(src_id, target_cid)
+                    self.categorias = _buscar_categorias()
+                    self._ilhas_row.controls = self._construir_ilhas()
+                    self.page.update()
+
+            target = ft.DragTarget(
+                group="ilha",
+                expand=True,
+                on_will_accept=_will_accept,
+                on_leave=_leave,
+                on_accept=_accept,
+                content=ft.Row(
+                    spacing=0,
+                    expand=True,
+                    vertical_alignment=ft.CrossAxisAlignment.STRETCH,
+                    controls=[ind, draggable],
+                ),
+            )
+            resultado.append(target)
+
         btn_nova_ilha = ft.Container(
             width=36,
             border_radius=12,
@@ -1900,7 +1965,7 @@ class TelaMensal:
             on_click=lambda e: self._abrir_gerenciar_categorias(novo=True),
             content=ft.Icon(ft.Icons.ADD, color="#7C4DFF70", size=20),
         )
-        return ilhas + [btn_nova_ilha]
+        return resultado + [btn_nova_ilha]
 
     # ------------------------------------------------------------------ #
     #  Construção da tela completa                                         #
