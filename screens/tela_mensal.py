@@ -19,15 +19,24 @@ from models.outro_recebimento import (
     remover_outro_recebimento,
     buscar_outros_recebimentos,
 )
+from models.categoria import (
+    listar_categorias,
+    criar_categoria,
+    atualizar_categoria,
+    remover_categoria,
+    contar_lancamentos_categoria,
+)
+
+# Paleta de cores disponíveis para as ilhas
+_PALETA_CORES = [
+    "#5C6BC0", "#7C4DFF", "#26C6DA", "#66BB6A",
+    "#AB47BC", "#EF5350", "#FFA726", "#EC407A",
+    "#26A69A", "#78909C", "#FFCA28", "#8D6E63",
+]
 
 
 def _buscar_categorias() -> list:
-    conn = obter_conexao()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM categorias WHERE ativa = 1 ORDER BY id")
-    cats = [dict(row) for row in cursor.fetchall()]
-    conn.close()
-    return cats
+    return listar_categorias()
 
 
 class TelaMensal:
@@ -1028,6 +1037,233 @@ class TelaMensal:
         self._abrir_modal(modal)
 
     # ------------------------------------------------------------------ #
+    #  Gerenciar categorias                                                #
+    # ------------------------------------------------------------------ #
+
+    def _abrir_gerenciar_categorias(self, novo: bool = False):
+        editando  = [-1 if novo else None]  # cat_id em edição, -1 = nova, None = nenhuma
+        cor_sel   = [_PALETA_CORES[0]]
+        aviso_txt = ft.Text("", size=11, color="#EF5350", visible=False)
+
+        campo_nome = ft.TextField(
+            hint_text="Nome da ilha",
+            autofocus=True,
+            border_color="#7C4DFF",
+            focused_border_color="#7C4DFF",
+            cursor_color="#7C4DFF",
+            dense=True,
+            color="#E0E0E0",
+        )
+
+        lista_col = ft.Column(spacing=4)
+        modal_ref = [None]
+
+        # ── helpers ────────────────────────────────────────────────────
+
+        def _fechar(e=None):
+            if modal_ref[0]:
+                self._fechar_modal(modal_ref[0])
+            self.categorias = _buscar_categorias()
+            self._ilhas_row.controls = self._construir_ilhas()
+            self.page.update()
+
+        def _cor_picker():
+            dots = []
+            for c in _PALETA_CORES:
+                sel = c == cor_sel[0]
+                dots.append(
+                    ft.Container(
+                        width=20, height=20,
+                        bgcolor=c,
+                        border_radius=10,
+                        border=ft.Border(
+                            left=ft.BorderSide(2, "#E0E0E0" if sel else "transparent"),
+                            right=ft.BorderSide(2, "#E0E0E0" if sel else "transparent"),
+                            top=ft.BorderSide(2, "#E0E0E0" if sel else "transparent"),
+                            bottom=ft.BorderSide(2, "#E0E0E0" if sel else "transparent"),
+                        ),
+                        on_click=lambda e, cor=c: _selecionar_cor(cor),
+                    )
+                )
+            return ft.Row(spacing=6, controls=dots)
+
+        def _form_edicao():
+            return ft.Container(
+                bgcolor="#0d1726",
+                border_radius=8,
+                padding=ft.Padding(left=12, right=12, top=10, bottom=10),
+                content=ft.Column(
+                    spacing=8,
+                    tight=True,
+                    controls=[
+                        campo_nome,
+                        _cor_picker(),
+                        ft.Row(
+                            alignment=ft.MainAxisAlignment.END,
+                            spacing=8,
+                            controls=[
+                                ft.TextButton("Cancelar", on_click=lambda e: _cancelar()),
+                                ft.FilledButton("Salvar",   on_click=lambda e: _salvar()),
+                            ],
+                        ),
+                    ],
+                ),
+            )
+
+        def _selecionar_cor(cor):
+            cor_sel[0] = cor
+            _rebuild()
+
+        def _iniciar_edicao(cat_id, nome, cor):
+            editando[0]   = cat_id
+            cor_sel[0]    = cor
+            campo_nome.value       = nome
+            campo_nome.error_text  = None
+            aviso_txt.visible = False
+            _rebuild()
+
+        def _iniciar_novo():
+            editando[0]   = -1
+            cor_sel[0]    = _PALETA_CORES[0]
+            campo_nome.value       = ""
+            campo_nome.error_text  = None
+            aviso_txt.visible = False
+            _rebuild()
+
+        def _cancelar():
+            editando[0] = None
+            aviso_txt.visible = False
+            _rebuild()
+
+        def _salvar():
+            nome = (campo_nome.value or "").strip()
+            if not nome:
+                campo_nome.error_text = "Campo obrigatório"
+                lista_col.update()
+                return
+            campo_nome.error_text = None
+            if editando[0] == -1:
+                criar_categoria(nome, cor_sel[0])
+            else:
+                atualizar_categoria(editando[0], nome, cor_sel[0])
+            editando[0] = None
+            aviso_txt.visible = False
+            _rebuild()
+
+        def _remover(cat_id):
+            ok = remover_categoria(cat_id)
+            if not ok:
+                aviso_txt.value   = "Esta ilha tem lançamentos — remova-os antes de excluí-la."
+                aviso_txt.visible = True
+            else:
+                aviso_txt.visible = False
+            _rebuild()
+
+        def _rebuild(atualizar=True):
+            cats = listar_categorias()
+            rows = []
+            for cat in cats:
+                if editando[0] == cat["id"]:
+                    rows.append(_form_edicao())
+                else:
+                    rows.append(
+                        ft.Container(
+                            padding=ft.Padding(left=10, right=4, top=6, bottom=6),
+                            border_radius=8,
+                            content=ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                controls=[
+                                    ft.Row(spacing=10, controls=[
+                                        ft.Container(
+                                            width=12, height=12,
+                                            bgcolor=cat["cor"],
+                                            border_radius=6,
+                                        ),
+                                        ft.Text(cat["nome"], size=13, color="#D0D0D0"),
+                                    ]),
+                                    ft.Row(spacing=0, controls=[
+                                        ft.Container(
+                                            content=ft.Icon(ft.Icons.EDIT_OUTLINED, color="#26C6DA60", size=15),
+                                            padding=ft.Padding(left=4, right=2, top=4, bottom=4),
+                                            border_radius=4,
+                                            tooltip="Editar",
+                                            on_click=lambda e, c=cat: _iniciar_edicao(c["id"], c["nome"], c["cor"]),
+                                        ),
+                                        ft.Container(
+                                            content=ft.Icon(ft.Icons.DELETE_OUTLINE, color="#EF535060", size=15),
+                                            padding=ft.Padding(left=2, right=4, top=4, bottom=4),
+                                            border_radius=4,
+                                            tooltip="Remover",
+                                            on_click=lambda e, cid=cat["id"]: _remover(cid),
+                                        ),
+                                    ]),
+                                ],
+                            ),
+                        )
+                    )
+            if editando[0] == -1:
+                rows.append(_form_edicao())
+            lista_col.controls = rows
+            if atualizar:
+                lista_col.update()
+
+        # build inicial — controle ainda não está na página, sem .update()
+        _rebuild(atualizar=False)
+
+        painel = ft.Container(
+            width=440,
+            bgcolor="#1e2235",
+            border_radius=16,
+            padding=ft.Padding(left=24, right=24, top=20, bottom=20),
+            content=ft.Column(
+                tight=True,
+                spacing=12,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Text(
+                                "Gerenciar Ilhas",
+                                size=16,
+                                weight=ft.FontWeight.W_500,
+                                color="#E0E0E0",
+                            ),
+                            ft.IconButton(
+                                icon=ft.Icons.CLOSE,
+                                icon_color="#9E9E9E",
+                                icon_size=18,
+                                on_click=_fechar,
+                            ),
+                        ],
+                    ),
+                    ft.Divider(color="#ffffff10", height=1),
+                    lista_col,
+                    aviso_txt,
+                    ft.Divider(color="#ffffff08", height=1),
+                    ft.Container(
+                        border_radius=8,
+                        padding=ft.Padding(left=8, right=8, top=6, bottom=6),
+                        on_click=lambda e: _iniciar_novo(),
+                        content=ft.Row(spacing=6, controls=[
+                            ft.Icon(ft.Icons.ADD, color="#7C4DFF", size=14),
+                            ft.Text("Adicionar ilha", size=12, color="#7C4DFF"),
+                        ]),
+                    ),
+                ],
+            ),
+        )
+
+        modal = ft.Container(
+            expand=True,
+            bgcolor="#000000bb",
+            alignment=ft.Alignment(x=0, y=0),
+            content=painel,
+        )
+        modal_ref[0] = modal
+        self._abrir_modal(modal)
+
+    # ------------------------------------------------------------------ #
     #  Construção visual                                                   #
     # ------------------------------------------------------------------ #
 
@@ -1074,12 +1310,22 @@ class TelaMensal:
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
-                ft.Row(
-                    spacing=10,
-                    controls=[
-                        ft.Container(width=10, height=10, bgcolor=cat["cor"], border_radius=5),
-                        ft.Text(cat["nome"], size=14, weight=ft.FontWeight.W_500, color="#E0E0E0"),
-                    ],
+                ft.Container(
+                    bgcolor="#1a2848",
+                    border_radius=6,
+                    padding=ft.Padding(left=10, right=12, top=5, bottom=5),
+                    border=ft.Border(
+                        left=ft.BorderSide(3, cat["cor"]),
+                        right=ft.BorderSide(0, "transparent"),
+                        top=ft.BorderSide(0, "transparent"),
+                        bottom=ft.BorderSide(0, "transparent"),
+                    ),
+                    content=ft.Text(
+                        cat["nome"],
+                        size=12,
+                        weight=ft.FontWeight.W_600,
+                        color=cat["cor"],
+                    ),
                 ),
                 ft.Row(
                     spacing=4,
@@ -1096,7 +1342,7 @@ class TelaMensal:
                         ft.Text(
                             formatar_moeda(total),
                             size=13,
-                            color="#66BB6A" if todos_pagos else (cat["cor"] if total > 0 else "#9E9E9E"),
+                            color="#66BB6A" if todos_pagos else "#9E9E9E",
                             weight=ft.FontWeight.W_500,
                         ),
                         ft.IconButton(
@@ -1391,7 +1637,7 @@ class TelaMensal:
             ],
         )
 
-        card = ft.Container(
+        card_body = ft.Container(
             expand=True,
             bgcolor="#16213e",
             border_radius=12,
@@ -1407,17 +1653,97 @@ class TelaMensal:
             ),
         )
 
+        # ── Overlay de confirmação de exclusão ──────────────────────────
+        qtd_lanc = contar_lancamentos_categoria(cat["id"])
+        aviso_excluir = ft.Text(
+            f"Atenção: {qtd_lanc} lançamento{'s' if qtd_lanc != 1 else ''} também será{'o' if qtd_lanc != 1 else ''} excluído{'s' if qtd_lanc != 1 else ''}.",
+            size=11,
+            color="#FFA726",
+            text_align=ft.TextAlign.CENTER,
+            visible=qtd_lanc > 0,
+        )
+
+        confirm_overlay = ft.Container(
+            expand=True,
+            visible=False,
+            bgcolor="#16213eee",
+            border_radius=12,
+            alignment=ft.Alignment(x=0, y=0),
+            content=ft.Column(
+                alignment=ft.MainAxisAlignment.CENTER,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=10,
+                controls=[
+                    ft.Text(
+                        "Excluir ilha?",
+                        size=13,
+                        weight=ft.FontWeight.W_600,
+                        color="#E0E0E0",
+                    ),
+                    aviso_excluir,
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        spacing=8,
+                        controls=[
+                            ft.TextButton(
+                                "Cancelar",
+                                on_click=lambda e: _fechar_confirm(),
+                            ),
+                            ft.FilledButton(
+                                "Excluir",
+                                style=ft.ButtonStyle(
+                                    bgcolor={"": "#EF5350"},
+                                    color={"": "#FFFFFF"},
+                                ),
+                                on_click=lambda e, cid=cat["id"]: _confirmar_excluir(cid),
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        )
+
+        def _abrir_confirm():
+            confirm_overlay.visible = True
+            confirm_overlay.update()
+
+        def _fechar_confirm():
+            confirm_overlay.visible = False
+            confirm_overlay.update()
+
+        def _confirmar_excluir(cid):
+            remover_categoria(cid, forcar=True)
+            self.categorias = _buscar_categorias()
+            self.resumo = calcular_resumo(self.periodo["id"])
+            self._resumo_row.controls = self._construir_resumo()
+            self._ilhas_row.controls = self._construir_ilhas()
+            self.page.update()
+
+        # X discreto no canto superior direito da ilha
+        delete_btn = ft.Container(
+            right=6,
+            top=6,
+            width=22,
+            height=22,
+            border_radius=11,
+            bgcolor="#ffffff12",
+            alignment=ft.Alignment(x=0, y=0),
+            tooltip="Excluir ilha",
+            on_click=lambda e: _abrir_confirm(),
+            content=ft.Icon(ft.Icons.CLOSE, size=11, color="#9E9E9E90"),
+        )
+
         def _on_will_accept(e):
-            card.bgcolor = "#1a2744"
-            card.update()
+            card_body.bgcolor = "#1a2744"
+            card_body.update()
 
         def _on_leave(e):
-            card.bgcolor = "#16213e"
-            card.update()
+            card_body.bgcolor = "#16213e"
+            card_body.update()
 
         def _on_accept(e, cid=cat["id"]):
-            card.bgcolor = "#16213e"
-            card.update()
+            card_body.bgcolor = "#16213e"
+            card_body.update()
             self._mover_lancamento(cid)
 
         return ft.DragTarget(
@@ -1426,11 +1752,25 @@ class TelaMensal:
             on_will_accept=_on_will_accept,
             on_accept=_on_accept,
             on_leave=_on_leave,
-            content=card,
+            content=ft.Stack(
+                expand=True,
+                clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                controls=[card_body, confirm_overlay, delete_btn],
+            ),
         )
 
     def _construir_ilhas(self) -> list:
-        return [self._card_ilha(cat) for cat in self.categorias]
+        ilhas = [self._card_ilha(cat) for cat in self.categorias]
+        btn_nova_ilha = ft.Container(
+            width=36,
+            border_radius=12,
+            bgcolor="#16213e",
+            alignment=ft.Alignment(x=0, y=0),
+            tooltip="Adicionar nova ilha",
+            on_click=lambda e: self._abrir_gerenciar_categorias(novo=True),
+            content=ft.Icon(ft.Icons.ADD, color="#7C4DFF70", size=20),
+        )
+        return ilhas + [btn_nova_ilha]
 
     # ------------------------------------------------------------------ #
     #  Construção da tela completa                                         #
@@ -1602,11 +1942,28 @@ class TelaMensal:
                                     ft.Text("Controle Mensal", size=11, color="#9E9E9E"),
                                 ],
                             ),
-                            ft.IconButton(
-                                icon=ft.Icons.CHEVRON_RIGHT,
-                                icon_color="#E0E0E0",
-                                icon_size=28,
-                                on_click=self._mes_proximo,
+                            ft.Row(
+                                spacing=0,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                controls=[
+                                    ft.IconButton(
+                                        icon=ft.Icons.CHEVRON_RIGHT,
+                                        icon_color="#E0E0E0",
+                                        icon_size=28,
+                                        on_click=self._mes_proximo,
+                                    ),
+                                    ft.Container(
+                                        content=ft.Icon(
+                                            ft.Icons.TUNE,
+                                            color="#9E9E9E70",
+                                            size=15,
+                                        ),
+                                        padding=ft.Padding(left=0, right=6, top=4, bottom=4),
+                                        border_radius=4,
+                                        tooltip="Gerenciar ilhas",
+                                        on_click=lambda e: self._abrir_gerenciar_categorias(),
+                                    ),
+                                ],
                             ),
                         ],
                     ),
