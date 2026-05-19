@@ -24,6 +24,7 @@ from models.categoria import (
     criar_categoria,
     atualizar_categoria,
     remover_categoria,
+    contar_lancamentos_categoria,
 )
 
 # Paleta de cores disponíveis para as ilhas
@@ -1039,8 +1040,8 @@ class TelaMensal:
     #  Gerenciar categorias                                                #
     # ------------------------------------------------------------------ #
 
-    def _abrir_gerenciar_categorias(self):
-        editando  = [None]   # cat_id em edição, -1 = nova, None = nenhuma
+    def _abrir_gerenciar_categorias(self, novo: bool = False):
+        editando  = [-1 if novo else None]  # cat_id em edição, -1 = nova, None = nenhuma
         cor_sel   = [_PALETA_CORES[0]]
         aviso_txt = ft.Text("", size=11, color="#EF5350", visible=False)
 
@@ -1636,7 +1637,7 @@ class TelaMensal:
             ],
         )
 
-        card = ft.Container(
+        card_body = ft.Container(
             expand=True,
             bgcolor="#16213e",
             border_radius=12,
@@ -1652,17 +1653,97 @@ class TelaMensal:
             ),
         )
 
+        # ── Overlay de confirmação de exclusão ──────────────────────────
+        qtd_lanc = contar_lancamentos_categoria(cat["id"])
+        aviso_excluir = ft.Text(
+            f"Atenção: {qtd_lanc} lançamento{'s' if qtd_lanc != 1 else ''} também será{'o' if qtd_lanc != 1 else ''} excluído{'s' if qtd_lanc != 1 else ''}.",
+            size=11,
+            color="#FFA726",
+            text_align=ft.TextAlign.CENTER,
+            visible=qtd_lanc > 0,
+        )
+
+        confirm_overlay = ft.Container(
+            expand=True,
+            visible=False,
+            bgcolor="#16213eee",
+            border_radius=12,
+            alignment=ft.Alignment(x=0, y=0),
+            content=ft.Column(
+                alignment=ft.MainAxisAlignment.CENTER,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=10,
+                controls=[
+                    ft.Text(
+                        "Excluir ilha?",
+                        size=13,
+                        weight=ft.FontWeight.W_600,
+                        color="#E0E0E0",
+                    ),
+                    aviso_excluir,
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        spacing=8,
+                        controls=[
+                            ft.TextButton(
+                                "Cancelar",
+                                on_click=lambda e: _fechar_confirm(),
+                            ),
+                            ft.FilledButton(
+                                "Excluir",
+                                style=ft.ButtonStyle(
+                                    bgcolor={"": "#EF5350"},
+                                    color={"": "#FFFFFF"},
+                                ),
+                                on_click=lambda e, cid=cat["id"]: _confirmar_excluir(cid),
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        )
+
+        def _abrir_confirm():
+            confirm_overlay.visible = True
+            confirm_overlay.update()
+
+        def _fechar_confirm():
+            confirm_overlay.visible = False
+            confirm_overlay.update()
+
+        def _confirmar_excluir(cid):
+            remover_categoria(cid, forcar=True)
+            self.categorias = _buscar_categorias()
+            self.resumo = calcular_resumo(self.periodo["id"])
+            self._resumo_row.controls = self._construir_resumo()
+            self._ilhas_row.controls = self._construir_ilhas()
+            self.page.update()
+
+        # X discreto no canto superior direito da ilha
+        delete_btn = ft.Container(
+            right=6,
+            top=6,
+            width=22,
+            height=22,
+            border_radius=11,
+            bgcolor="#ffffff12",
+            alignment=ft.Alignment(x=0, y=0),
+            tooltip="Excluir ilha",
+            on_click=lambda e: _abrir_confirm(),
+            content=ft.Icon(ft.Icons.CLOSE, size=11, color="#9E9E9E90"),
+        )
+
         def _on_will_accept(e):
-            card.bgcolor = "#1a2744"
-            card.update()
+            card_body.bgcolor = "#1a2744"
+            card_body.update()
 
         def _on_leave(e):
-            card.bgcolor = "#16213e"
-            card.update()
+            card_body.bgcolor = "#16213e"
+            card_body.update()
 
         def _on_accept(e, cid=cat["id"]):
-            card.bgcolor = "#16213e"
-            card.update()
+            card_body.bgcolor = "#16213e"
+            card_body.update()
             self._mover_lancamento(cid)
 
         return ft.DragTarget(
@@ -1671,11 +1752,25 @@ class TelaMensal:
             on_will_accept=_on_will_accept,
             on_accept=_on_accept,
             on_leave=_on_leave,
-            content=card,
+            content=ft.Stack(
+                expand=True,
+                clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                controls=[card_body, confirm_overlay, delete_btn],
+            ),
         )
 
     def _construir_ilhas(self) -> list:
-        return [self._card_ilha(cat) for cat in self.categorias]
+        ilhas = [self._card_ilha(cat) for cat in self.categorias]
+        btn_nova_ilha = ft.Container(
+            width=36,
+            border_radius=12,
+            bgcolor="#16213e",
+            alignment=ft.Alignment(x=0, y=0),
+            tooltip="Adicionar nova ilha",
+            on_click=lambda e: self._abrir_gerenciar_categorias(novo=True),
+            content=ft.Icon(ft.Icons.ADD, color="#7C4DFF70", size=20),
+        )
+        return ilhas + [btn_nova_ilha]
 
     # ------------------------------------------------------------------ #
     #  Construção da tela completa                                         #
