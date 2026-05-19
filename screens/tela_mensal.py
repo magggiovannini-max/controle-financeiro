@@ -621,6 +621,22 @@ class TelaMensal:
         self.resumo = calcular_resumo(self.periodo["id"])
         self._redesenhar()
 
+    def _toggle_status(self, lancamento_id: int, ldata: dict):
+        """Alterna pago ↔ pendente com um clique no bullet."""
+        novo_status = "pendente" if ldata["status"] == "pago" else "pago"
+        atualizar_lancamento(
+            lancamento_id=lancamento_id,
+            descricao=ldata["descricao"],
+            valor=ldata["valor"],
+            data_vencimento=ldata.get("data_vencimento"),
+            origem_pagamento=ldata["origem_pagamento"],
+            status=novo_status,
+        )
+        self.resumo = calcular_resumo(self.periodo["id"])
+        self._resumo_row.controls = self._construir_resumo()
+        self._ilhas_row.controls = self._construir_ilhas()
+        self.page.update()
+
     def _set_dragging(self, lid: int, cid: int):
         """Registra a fonte do arrasto — chamado pelo on_drag_start do Draggable."""
         self._dragging_id = lid
@@ -1041,6 +1057,7 @@ class TelaMensal:
         """
         lancamentos = buscar_lancamentos_por_categoria(self.periodo["id"], cat["id"])
         total = sum(l["valor"] for l in lancamentos)
+        todos_pagos = bool(lancamentos) and all(l["status"] == "pago" for l in lancamentos)
 
         header = ft.Row(
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -1054,12 +1071,21 @@ class TelaMensal:
                     ],
                 ),
                 ft.Row(
-                    spacing=6,
+                    spacing=4,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[
+                        ft.Container(
+                            visible=todos_pagos,
+                            content=ft.Icon(
+                                ft.Icons.CHECK_CIRCLE_OUTLINE,
+                                color="#66BB6A",
+                                size=14,
+                            ),
+                        ),
                         ft.Text(
                             formatar_moeda(total),
                             size=13,
-                            color=cat["cor"] if total > 0 else "#9E9E9E",
+                            color="#66BB6A" if todos_pagos else (cat["cor"] if total > 0 else "#9E9E9E"),
                             weight=ft.FontWeight.W_500,
                         ),
                         ft.IconButton(
@@ -1083,12 +1109,22 @@ class TelaMensal:
 
         linhas = []
         for i, l in enumerate(lancamentos):
-            cor_status = "#66BB6A" if l["status"] == "pago" else "#FFA726"
+            pago    = l["status"] == "pago"
+            vencido = (
+                not pago
+                and bool(l.get("data_vencimento"))
+                and l["data_vencimento"] < date.today().isoformat()
+            )
+            # Paleta visual: pendente = chamativo, pago = discreto
+            cor_bullet = "#66BB6A" if pago else "#FFA726"
+            tam_bullet = 5 if pago else 9
+            cor_desc   = "#455260" if pago else "#D0D0D0"
+            cor_valor  = "#455260" if pago else ("#EF5350" if vencido else "#FFA726")
 
             # ── Edição inline de valor ──────────────────────────────────────
             _ultimo_clique = [0.0]
 
-            texto_valor = ft.Text(formatar_moeda(l["valor"]), size=13, color="#E0E0E0")
+            texto_valor = ft.Text(formatar_moeda(l["valor"]), size=13, color=cor_valor)
 
             campo_inline = ft.TextField(
                 keyboard_type=ft.KeyboardType.NUMBER,
@@ -1163,10 +1199,26 @@ class TelaMensal:
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 controls=[
                     ft.Row(
-                        spacing=8,
+                        spacing=4,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         controls=[
-                            ft.Container(width=6, height=6, bgcolor=cor_status, border_radius=3),
-                            ft.Text(l["descricao"], size=13, color="#C0C0C0"),
+                            # Bullet clicável — área de toque 22×22, ponto centralizado
+                            ft.Container(
+                                width=22, height=22,
+                                alignment=ft.Alignment(x=0, y=0),
+                                border_radius=4,
+                                tooltip=(
+                                    "Marcar como pendente" if pago
+                                    else "Marcar como pago"
+                                ),
+                                on_click=lambda e, lid=l["id"], ld=dict(l): self._toggle_status(lid, ld),
+                                content=ft.Container(
+                                    width=tam_bullet, height=tam_bullet,
+                                    bgcolor=cor_bullet,
+                                    border_radius=tam_bullet,
+                                ),
+                            ),
+                            ft.Text(l["descricao"], size=13, color=cor_desc),
                         ],
                     ),
                     ft.Row(
