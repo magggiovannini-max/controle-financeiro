@@ -1,3 +1,5 @@
+import calendar
+
 from database.connection import obter_conexao
 from datetime import date
 
@@ -30,6 +32,46 @@ def criar_lancamento(
     return novo_id
 
 
+def atualizar_lancamento(
+    lancamento_id: int,
+    descricao: str,
+    valor: float,
+    data_vencimento: str,
+    origem_pagamento: int,
+    status: str,
+):
+    conn = obter_conexao()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT status, data_pagamento FROM lancamentos WHERE id = ?",
+        (lancamento_id,)
+    )
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return
+
+    hoje = date.today().isoformat()
+    if status == "pago" and row["status"] != "pago":
+        data_pagamento = hoje           # acabou de ser marcado como pago
+    elif status == "pago":
+        data_pagamento = row["data_pagamento"]  # já era pago, preserva a data
+    else:
+        data_pagamento = None           # voltou para pendente
+
+    cursor.execute("""
+        UPDATE lancamentos
+        SET descricao = ?, valor = ?, data_vencimento = ?,
+            origem_pagamento = ?, status = ?, data_pagamento = ?
+        WHERE id = ?
+    """, (descricao, valor, data_vencimento,
+          origem_pagamento, status, data_pagamento, lancamento_id))
+
+    conn.commit()
+    conn.close()
+
+
 def remover_lancamento(lancamento_id: int):
     conn = obter_conexao()
     cursor = conn.cursor()
@@ -60,6 +102,53 @@ def buscar_lancamentos_por_categoria(periodo_id: int, categoria_id: int) -> list
     items = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return items
+
+
+def copiar_lancamentos_do_periodo(
+    origem_id: int,
+    destino_id: int,
+    mes_destino: int,
+    ano_destino: int,
+) -> int:
+    """Copia todos os lançamentos do período origem para o destino.
+    Ajusta data_vencimento para o mês/ano destino mantendo o dia original.
+    Todos os itens chegam com status 'pendente'.
+    Retorna a quantidade copiada."""
+    conn = obter_conexao()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT * FROM lancamentos WHERE periodo_id = ? ORDER BY ordem, id",
+        (origem_id,),
+    )
+    lancamentos = [dict(row) for row in cursor.fetchall()]
+
+    hoje = date.today().isoformat()
+    ultimo_dia = calendar.monthrange(ano_destino, mes_destino)[1]
+
+    for i, l in enumerate(lancamentos):
+        data_venc = None
+        if l.get("data_vencimento"):
+            try:
+                dia = int(str(l["data_vencimento"]).split("-")[2])
+                dia = min(dia, ultimo_dia)
+                data_venc = f"{ano_destino:04d}-{mes_destino:02d}-{dia:02d}"
+            except (IndexError, ValueError):
+                data_venc = None
+
+        cursor.execute("""
+            INSERT INTO lancamentos
+                (periodo_id, categoria_id, descricao, valor, data_lancamento,
+                 data_vencimento, origem_pagamento, status, data_pagamento, ordem)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'pendente', NULL, ?)
+        """, (
+            destino_id, l["categoria_id"], l["descricao"], l["valor"],
+            hoje, data_venc, l["origem_pagamento"], i,
+        ))
+
+    conn.commit()
+    conn.close()
+    return len(lancamentos)
 
 
 def reordenar_lancamentos(id_arrastado: int, id_alvo: int):
