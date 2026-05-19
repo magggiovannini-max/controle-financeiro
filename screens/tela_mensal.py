@@ -1309,12 +1309,22 @@ class TelaMensal:
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             controls=[
-                ft.Row(
-                    spacing=10,
-                    controls=[
-                        ft.Container(width=10, height=10, bgcolor=cat["cor"], border_radius=5),
-                        ft.Text(cat["nome"], size=13, weight=ft.FontWeight.W_600, color=cat["cor"]),
-                    ],
+                ft.Container(
+                    bgcolor="#1a2848",
+                    border_radius=6,
+                    padding=ft.Padding(left=10, right=12, top=5, bottom=5),
+                    border=ft.Border(
+                        left=ft.BorderSide(3, cat["cor"]),
+                        right=ft.BorderSide(0, "transparent"),
+                        top=ft.BorderSide(0, "transparent"),
+                        bottom=ft.BorderSide(0, "transparent"),
+                    ),
+                    content=ft.Text(
+                        cat["nome"],
+                        size=12,
+                        weight=ft.FontWeight.W_600,
+                        color=cat["cor"],
+                    ),
                 ),
                 ft.Row(
                     spacing=4,
@@ -1331,7 +1341,7 @@ class TelaMensal:
                         ft.Text(
                             formatar_moeda(total),
                             size=13,
-                            color="#66BB6A" if todos_pagos else (cat["cor"] if total > 0 else "#9E9E9E"),
+                            color="#66BB6A" if todos_pagos else "#9E9E9E",
                             weight=ft.FontWeight.W_500,
                         ),
                         ft.IconButton(
