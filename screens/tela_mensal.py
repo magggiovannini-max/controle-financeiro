@@ -1114,9 +1114,16 @@ class TelaMensal:
         # Mapa id → índice para determinar direção do arrasto no indicador visual
         id_to_idx = {l["id"]: i for i, l in enumerate(lancamentos)}
 
-        # Helper: formata float para o campo de edição inline (sem símbolo R$)
+        # Helpers de formatação
         def _fmt_edit(v: float) -> str:
             return str(int(v)) if v == int(v) else f"{v:.2f}".replace(".", ",")
+
+        def _fmt_venc(data_iso) -> str:
+            """YYYY-MM-DD → DD/MM para exibição discreta no item."""
+            if not data_iso:
+                return ""
+            p = str(data_iso).split("-")
+            return f"{p[2]}/{p[1]}" if len(p) == 3 else ""
 
         linhas = []
         for i, l in enumerate(lancamentos):
@@ -1131,6 +1138,7 @@ class TelaMensal:
             tam_bullet = 5 if pago else 9
             cor_desc   = "#455260" if pago else "#D0D0D0"
             cor_valor  = "#455260" if pago else ("#EF5350" if vencido else "#FFA726")
+            cor_venc   = "#3d4d55" if pago else ("#EF5350" if vencido else "#5a7080")
 
             # ── Edição inline de valor ──────────────────────────────────────
             _ultimo_clique = [0.0]
@@ -1229,7 +1237,19 @@ class TelaMensal:
                                     border_radius=tam_bullet,
                                 ),
                             ),
-                            ft.Text(l["descricao"], size=13, color=cor_desc),
+                            ft.Column(
+                                spacing=1,
+                                tight=True,
+                                controls=[
+                                    ft.Text(l["descricao"], size=13, color=cor_desc),
+                                    ft.Text(
+                                        _fmt_venc(l.get("data_vencimento")),
+                                        size=10,
+                                        color=cor_venc,
+                                        visible=bool(l.get("data_vencimento")),
+                                    ),
+                                ],
+                            ),
                         ],
                     ),
                     ft.Row(
