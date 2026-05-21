@@ -13,9 +13,11 @@ def listar_categorias() -> list:
 def criar_categoria(nome: str, cor: str) -> int:
     conn = obter_conexao()
     cursor = conn.cursor()
+    cursor.execute("SELECT COALESCE(MAX(ordem), -1) FROM categorias WHERE ativa = 1")
+    proxima_ordem = cursor.fetchone()[0] + 1
     cursor.execute(
-        "INSERT INTO categorias (nome, cor) VALUES (?, ?)",
-        (nome, cor),
+        "INSERT INTO categorias (nome, cor, ordem) VALUES (?, ?, ?)",
+        (nome, cor, proxima_ordem),
     )
     conn.commit()
     novo_id = cursor.lastrowid
