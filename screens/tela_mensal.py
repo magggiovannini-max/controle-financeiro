@@ -1,3 +1,4 @@
+import calendar
 import time
 import flet as ft
 from datetime import date
@@ -729,6 +730,7 @@ class TelaMensal:
                 ft.Radio(value="30", label="Dia 30"),
             ]),
         )
+        status_label = ft.Text("Status:", size=12, color="#9E9E9E")
         status_group = ft.RadioGroup(
             value="pendente",
             content=ft.Row([
@@ -736,6 +738,53 @@ class TelaMensal:
                 ft.Radio(value="pago",     label="Pago"),
             ]),
         )
+
+        # ── Parcelado ───────────────────────────────────────────────────
+        parcelado_ativo = [False]
+
+        campo_parcelas = ft.TextField(
+            value="2",
+            keyboard_type=ft.KeyboardType.NUMBER,
+            border_color="#7C4DFF",
+            focused_border_color="#7C4DFF",
+            cursor_color="#7C4DFF",
+            width=64,
+            dense=True,
+            text_align=ft.TextAlign.CENTER,
+            content_padding=ft.Padding(left=8, right=8, top=6, bottom=6),
+            visible=False,
+        )
+        sufixo_parcelas = ft.Text("parcelas", size=12, color="#9E9E9E", visible=False)
+
+        def _toggle_parcelado(e):
+            parcelado_ativo[0] = e.control.value
+            campo_parcelas.visible = parcelado_ativo[0]
+            sufixo_parcelas.visible = parcelado_ativo[0]
+            # parcelado → status sempre pendente (oculta opção)
+            status_label.visible = not parcelado_ativo[0]
+            status_group.visible = not parcelado_ativo[0]
+            campo_parcelas.update()
+            sufixo_parcelas.update()
+            status_label.update()
+            status_group.update()
+
+        parcelado_row = ft.Row(
+            spacing=8,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Checkbox(
+                    label="Parcelado em",
+                    value=False,
+                    check_color="#7C4DFF",
+                    active_color="#7C4DFF",
+                    label_style=ft.TextStyle(size=12, color="#9E9E9E"),
+                    on_change=_toggle_parcelado,
+                ),
+                campo_parcelas,
+                sufixo_parcelas,
+            ],
+        )
+        # ── fim parcelado ───────────────────────────────────────────────
 
         modal_ref = [None]
 
@@ -752,6 +801,22 @@ class TelaMensal:
                 dia, mes, ano = int(partes[0]), int(partes[1]), int(partes[2])
                 return f"{ano}-{mes:02d}-{dia:02d}"
             raise ValueError("Formato inválido")
+
+        def _mes_mais_n(mes_base: int, ano_base: int, n: int):
+            """Retorna (mes, ano) após n meses a partir de mes_base/ano_base."""
+            total = mes_base - 1 + n        # base 0
+            return (total % 12) + 1, ano_base + total // 12
+
+        def _ajustar_venc_para_mes(data_iso: str, mes: int, ano: int) -> str:
+            """Mantém o dia do vencimento mas ajusta para outro mês/ano."""
+            if not data_iso:
+                return None
+            try:
+                dia = int(str(data_iso).split("-")[2])
+                dia = min(dia, calendar.monthrange(ano, mes)[1])
+                return f"{ano:04d}-{mes:02d}-{dia:02d}"
+            except (IndexError, ValueError):
+                return None
 
         def salvar(e):
             erros = False
@@ -772,6 +837,17 @@ class TelaMensal:
                 campo_valor.error_text = "Digite um valor válido"
                 erros = True
 
+            n_parcelas = 1
+            if parcelado_ativo[0]:
+                try:
+                    n_parcelas = int((campo_parcelas.value or "").strip())
+                    if n_parcelas < 2:
+                        raise ValueError()
+                    campo_parcelas.error_text = None
+                except ValueError:
+                    campo_parcelas.error_text = "Mín. 2"
+                    erros = True
+
             data_venc = None
             if campo_venc.value and campo_venc.value.strip():
                 try:
@@ -785,22 +861,45 @@ class TelaMensal:
                 self.page.update()
                 return
 
+            origem = int(origem_group.value or "15")
+            desc_base = campo_desc.value.strip()
+
             try:
-                criar_lancamento(
-                    periodo_id=self.periodo["id"],
-                    categoria_id=cat["id"],
-                    descricao=campo_desc.value.strip(),
-                    valor=valor,
-                    data_vencimento=data_venc,
-                    origem_pagamento=int(origem_group.value or "15"),
-                    status=status_group.value or "pendente",
-                )
+                if n_parcelas == 1:
+                    # Lançamento simples
+                    criar_lancamento(
+                        periodo_id=self.periodo["id"],
+                        categoria_id=cat["id"],
+                        descricao=desc_base,
+                        valor=valor,
+                        data_vencimento=data_venc,
+                        origem_pagamento=origem,
+                        status=status_group.value or "pendente",
+                    )
+                else:
+                    # Cria N lançamentos distribuídos nos próximos N meses
+                    mes_base = self.periodo["mes"]
+                    ano_base = self.periodo["ano"]
+                    for i in range(n_parcelas):
+                        mes_i, ano_i = _mes_mais_n(mes_base, ano_base, i)
+                        periodo_i = obter_ou_criar_periodo(mes_i, ano_i)
+                        venc_i = _ajustar_venc_para_mes(data_venc, mes_i, ano_i)
+                        # Só a parcela 1 pode ser "pago"; as demais são pendente
+                        st = (status_group.value or "pendente") if i == 0 else "pendente"
+                        criar_lancamento(
+                            periodo_id=periodo_i["id"],
+                            categoria_id=cat["id"],
+                            descricao=f"{desc_base} ({i + 1}/{n_parcelas})",
+                            valor=valor,
+                            data_vencimento=venc_i,
+                            origem_pagamento=origem,
+                            status=st,
+                        )
             except Exception as ex:
                 campo_desc.error_text = f"Erro ao salvar: {ex}"
                 self.page.update()
                 return
 
-            # Fecha o modal, depois recalcula e redesenha
             _fechar()
             self.resumo = calcular_resumo(self.periodo["id"])
             self._resumo_row.controls = self._construir_resumo()
@@ -839,9 +938,10 @@ class TelaMensal:
                     campo_desc,
                     campo_valor,
                     campo_venc,
+                    parcelado_row,
                     ft.Text("Pagar com:", size=12, color="#9E9E9E"),
                     origem_group,
-                    ft.Text("Status:", size=12, color="#9E9E9E"),
+                    status_label,
                     status_group,
                     ft.Row(
                         alignment=ft.MainAxisAlignment.END,
