@@ -1381,6 +1381,10 @@ class TelaMensal:
             editando[0] = None
             aviso_txt.visible = False
             _rebuild()
+            # Atualiza as ilhas imediatamente sem fechar o modal
+            self.categorias = _buscar_categorias()
+            self._ilhas_row.controls = self._construir_ilhas()
+            self.page.update()
 
         def _remover(cat_id):
             ok = remover_categoria(cat_id)
