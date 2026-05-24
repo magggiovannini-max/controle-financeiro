@@ -56,6 +56,18 @@ def criar_tabelas():
         )
     """)
 
+    # --- Tabela de gastos do Caju (rastreia o saldo do cartão-refeição) ---
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS gastos_caju (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            periodo_id INTEGER NOT NULL,
+            descricao  TEXT NOT NULL,
+            valor      REAL NOT NULL,
+            data       TEXT NOT NULL,
+            FOREIGN KEY (periodo_id) REFERENCES periodos(id)
+        )
+    """)
+
     # --- Tabela de lançamentos (cada gasto ou conta) ---
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS lancamentos (
@@ -133,6 +145,24 @@ def migrar_banco():
         conn.commit()
     except Exception:
         pass
+    # Coluna saldo_caju em periodos (saldo inicial do Caju por mês)
+    try:
+        cursor.execute("ALTER TABLE periodos ADD COLUMN saldo_caju REAL DEFAULT 0.0")
+        conn.commit()
+    except Exception:
+        pass
+    # Tabela gastos_caju (pode não existir em bancos antigos)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS gastos_caju (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            periodo_id INTEGER NOT NULL,
+            descricao  TEXT NOT NULL,
+            valor      REAL NOT NULL,
+            data       TEXT NOT NULL,
+            FOREIGN KEY (periodo_id) REFERENCES periodos(id)
+        )
+    """)
+    conn.commit()
     # Tabela outros_recebimentos pode não existir em bancos antigos
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS outros_recebimentos (

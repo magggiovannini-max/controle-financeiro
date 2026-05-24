@@ -3,7 +3,12 @@ import time
 import flet as ft
 from datetime import date
 
-from models.periodo import obter_ou_criar_periodo, atualizar_valores_periodo, calcular_resumo
+from models.periodo import (
+    obter_ou_criar_periodo,
+    atualizar_valores_periodo,
+    calcular_resumo,
+    atualizar_saldo_caju,
+)
 from models.lancamento import (
     criar_lancamento,
     atualizar_lancamento,
@@ -37,6 +42,8 @@ from models.categoria import (
     contar_lancamentos_categoria,
     reordenar_categorias,
 )
+from models.gasto_caju import listar_gastos_caju, criar_gasto_caju, remover_gasto_caju
+
 
 # Paleta de cores disponíveis para as ilhas
 _PALETA_CORES = [
@@ -99,6 +106,9 @@ class TelaMensal:
         self._dragging_ilha_id = None # ID da ilha sendo reordenada
         self._undo_lancamento = None  # dados do último lançamento removido (desfazer)
         self._undo_outro_rec  = None  # dados do último outro_rec removido (desfazer)
+
+        # Ilha Caju
+        self._caju_expandido = False
 
         # Card de recebimentos recolhível
         self._rec_expandido = True
@@ -2365,6 +2375,385 @@ class TelaMensal:
             ),
         )
 
+    # ------------------------------------------------------------------ #
+    #  Ilha Caju — saldo do cartão-refeição                              #
+    # ------------------------------------------------------------------ #
+
+    def _card_caju(self) -> ft.Control:
+        """Ilha fixa e compacta para rastrear saldo e gastos do Caju."""
+        gastos    = listar_gastos_caju(self.periodo["id"])
+        saldo_ini = self.periodo.get("saldo_caju") or 0.0
+        total_gasto = sum(g["valor"] for g in gastos)
+        saldo_rest  = saldo_ini - total_gasto
+        cor_rest    = "#66BB6A" if saldo_rest >= 0 else "#EF5350"
+
+        # Barra de progresso (% gasto do saldo inicial)
+        pct      = (total_gasto / saldo_ini) if saldo_ini > 0 else 0.0
+        pct_c    = min(pct, 1.0)
+        cor_bar  = "#26C6DA" if pct < 0.7 else ("#FFA726" if pct < 0.9 else "#EF5350")
+        bar_fill = max(int(pct_c * 100), 1)
+        bar_rest = max(100 - bar_fill, 0)
+
+        # ── Edição inline do saldo inicial (duplo clique) ────────────
+        _ultimo_clique_saldo = [0.0]
+
+        def _fmt_saldo_ini(v):
+            return str(int(v)) if v == int(v) else f"{v:.2f}".replace(".", ",")
+
+        texto_saldo_ini = ft.Text(
+            f"de {formatar_moeda(saldo_ini)}" if saldo_ini > 0 else "definir saldo",
+            size=10,
+            color="#9E9E9E" if saldo_ini > 0 else "#26C6DA50",
+            italic=saldo_ini == 0,
+        )
+        campo_saldo_ini = ft.TextField(
+            keyboard_type=ft.KeyboardType.NUMBER,
+            border_color="#26C6DA",
+            focused_border_color="#26C6DA",
+            cursor_color="#26C6DA",
+            text_size=10,
+            color="#E0E0E0",
+            width=80,
+            dense=True,
+            content_padding=ft.Padding(left=6, right=6, top=2, bottom=2),
+        )
+        saldo_ini_wrapper = ft.Container(
+            content=texto_saldo_ini,
+            tooltip="Duplo clique para editar o saldo inicial do Caju",
+        )
+
+        def _cancelar_saldo(e=None):
+            try:
+                saldo_ini_wrapper.content  = texto_saldo_ini
+                saldo_ini_wrapper.on_click = _click_saldo
+                saldo_ini_wrapper.update()
+            except Exception:
+                pass
+
+        def _salvar_saldo(e=None):
+            campo_saldo_ini.on_blur = None
+            try:
+                novo = float(
+                    (campo_saldo_ini.value or "").replace(",", ".").strip()
+                )
+                if novo < 0:
+                    raise ValueError()
+                atualizar_saldo_caju(self.periodo["id"], novo)
+                self.periodo["saldo_caju"] = novo
+                self._ilhas_row.controls = self._construir_ilhas()
+                self.page.update()
+            except ValueError:
+                campo_saldo_ini.on_blur = _cancelar_saldo
+                _cancelar_saldo()
+
+        def _click_saldo(e):
+            agora = time.time()
+            if agora - _ultimo_clique_saldo[0] < 0.35:
+                campo_saldo_ini.value      = _fmt_saldo_ini(saldo_ini)
+                saldo_ini_wrapper.content  = campo_saldo_ini
+                saldo_ini_wrapper.on_click = None
+                saldo_ini_wrapper.update()
+            _ultimo_clique_saldo[0] = agora
+
+        saldo_ini_wrapper.on_click = _click_saldo
+        campo_saldo_ini.on_submit  = _salvar_saldo
+        campo_saldo_ini.on_blur    = _cancelar_saldo
+
+        # ── Lista de gastos (visível só quando expandido) ────────────
+        def _remover_gasto(gid):
+            remover_gasto_caju(gid)
+            self._ilhas_row.controls = self._construir_ilhas()
+            self.page.update()
+
+        linhas = []
+        for g in gastos:
+            d = g.get("data", "")
+            data_fmt = f"{d[8:10]}/{d[5:7]}" if len(d) == 10 else ""
+            linhas.append(
+                ft.Container(
+                    padding=ft.Padding(left=0, right=0, top=2, bottom=2),
+                    content=ft.Row(
+                        spacing=4,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Text(data_fmt, size=10, color="#5a7080", width=28),
+                            ft.Text(
+                                g["descricao"], size=11, color="#C0C0C0",
+                                expand=True, overflow=ft.TextOverflow.ELLIPSIS,
+                            ),
+                            ft.Text(formatar_moeda(g["valor"]), size=11, color="#FFA726"),
+                            ft.Container(
+                                width=16, height=16,
+                                border_radius=8,
+                                alignment=ft.Alignment(x=0, y=0),
+                                on_click=lambda e, gid=g["id"]: _remover_gasto(gid),
+                                content=ft.Icon(ft.Icons.CLOSE, size=9, color="#3a5070"),
+                            ),
+                        ],
+                    ),
+                )
+            )
+
+        btn_add = ft.Container(
+            padding=ft.Padding(left=0, right=0, top=5, bottom=2),
+            on_click=lambda e: self._abrir_form_gasto_caju(),
+            content=ft.Row(
+                spacing=4,
+                controls=[
+                    ft.Icon(ft.Icons.ADD, size=11, color="#26C6DA70"),
+                    ft.Text("Adicionar gasto", size=10, color="#26C6DA70"),
+                ],
+            ),
+        )
+
+        gastos_col = ft.Column(
+            spacing=0,
+            visible=self._caju_expandido,
+            controls=linhas + [btn_add],
+        )
+
+        # ── Chevron toggle ───────────────────────────────────────────
+        chevron = ft.Icon(
+            name=ft.Icons.EXPAND_LESS if self._caju_expandido else ft.Icons.EXPAND_MORE,
+            size=14,
+            color="#26C6DA60",
+        )
+
+        def _toggle(e):
+            self._caju_expandido = not self._caju_expandido
+            gastos_col.visible = self._caju_expandido
+            chevron.name = (
+                ft.Icons.EXPAND_LESS if self._caju_expandido else ft.Icons.EXPAND_MORE
+            )
+            gastos_col.update()
+            chevron.update()
+
+        # ── Header ───────────────────────────────────────────────────
+        header = ft.Column(
+            spacing=4,
+            controls=[
+                ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.Row(
+                            spacing=6,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Icon(ft.Icons.PUSH_PIN, size=12, color="#26C6DA"),
+                                ft.Text(
+                                    "Caju",
+                                    size=12,
+                                    weight=ft.FontWeight.W_600,
+                                    color="#26C6DA",
+                                ),
+                            ],
+                        ),
+                        ft.Row(
+                            spacing=2,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            controls=[
+                                ft.Column(
+                                    spacing=1,
+                                    horizontal_alignment=ft.CrossAxisAlignment.END,
+                                    tight=True,
+                                    controls=[
+                                        ft.Text(
+                                            formatar_moeda(saldo_rest),
+                                            size=12,
+                                            weight=ft.FontWeight.W_600,
+                                            color=cor_rest,
+                                        ),
+                                        saldo_ini_wrapper,
+                                    ],
+                                ),
+                                ft.Container(
+                                    width=22, height=22,
+                                    border_radius=11,
+                                    alignment=ft.Alignment(x=0, y=0),
+                                    on_click=_toggle,
+                                    content=chevron,
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+                # Barra de progresso
+                ft.Container(
+                    height=3,
+                    border_radius=2,
+                    bgcolor="#ffffff10",
+                    content=ft.Row(
+                        spacing=0,
+                        controls=[
+                            ft.Container(
+                                height=3, border_radius=2,
+                                bgcolor=cor_bar,
+                                expand=bar_fill,
+                            ),
+                            ft.Container(height=3, expand=bar_rest or None),
+                        ],
+                    ),
+                ) if saldo_ini > 0 else ft.Container(height=3, bgcolor="#ffffff08", border_radius=2),
+            ],
+        )
+
+        return ft.Container(
+            width=210,
+            bgcolor="#16213e",
+            border_radius=12,
+            padding=ft.Padding(left=12, right=12, top=10, bottom=10),
+            border=ft.Border(
+                left=ft.BorderSide(3, "#26C6DA"),
+                right=ft.BorderSide(0, "transparent"),
+                top=ft.BorderSide(0, "transparent"),
+                bottom=ft.BorderSide(0, "transparent"),
+            ),
+            content=ft.Column(
+                spacing=4,
+                controls=[header, gastos_col],
+            ),
+        )
+
+    def _abrir_form_gasto_caju(self):
+        """Modal simples para registrar um gasto no Caju."""
+        hoje = date.today()
+
+        campo_desc = ft.TextField(
+            label="Descrição",
+            hint_text="ex: iFood, almoço...",
+            autofocus=True,
+            border_color="#26C6DA",
+            focused_border_color="#26C6DA",
+            cursor_color="#26C6DA",
+            dense=True,
+            color="#E0E0E0",
+        )
+        campo_valor = ft.TextField(
+            label="Valor",
+            prefix=ft.Text("R$ "),
+            keyboard_type=ft.KeyboardType.NUMBER,
+            border_color="#26C6DA",
+            focused_border_color="#26C6DA",
+            cursor_color="#26C6DA",
+            dense=True,
+            color="#E0E0E0",
+        )
+        campo_data = ft.TextField(
+            label="Data",
+            hint_text="DD/MM/AAAA",
+            value=f"{hoje.day:02d}/{hoje.month:02d}/{hoje.year}",
+            border_color="#26C6DA",
+            focused_border_color="#26C6DA",
+            cursor_color="#26C6DA",
+            dense=True,
+            color="#E0E0E0",
+        )
+
+        modal_ref = [None]
+
+        def _fechar(e=None):
+            if modal_ref[0]:
+                self._fechar_modal(modal_ref[0])
+
+        def _salvar(e=None):
+            desc = (campo_desc.value or "").strip()
+            if not desc:
+                campo_desc.error_text = "Obrigatório"
+                campo_desc.update()
+                return
+            campo_desc.error_text = None
+
+            try:
+                valor = float((campo_valor.value or "").replace(",", ".").strip())
+                if valor <= 0:
+                    raise ValueError()
+                campo_valor.error_text = None
+            except ValueError:
+                campo_valor.error_text = "Valor inválido"
+                campo_valor.update()
+                return
+
+            try:
+                partes = (campo_data.value or "").strip().split("/")
+                data_iso = f"{partes[2]}-{partes[1]}-{partes[0]}"
+                campo_data.error_text = None
+            except Exception:
+                campo_data.error_text = "Formato DD/MM/AAAA"
+                campo_data.update()
+                return
+
+            criar_gasto_caju(self.periodo["id"], desc, valor, data_iso)
+            self._caju_expandido = True   # abre a lista após salvar
+            _fechar()
+            self._ilhas_row.controls = self._construir_ilhas()
+            self.page.update()
+
+        campo_desc.on_submit  = _salvar
+        campo_valor.on_submit = _salvar
+        campo_data.on_submit  = _salvar
+
+        painel = ft.Container(
+            width=340,
+            bgcolor="#1e2235",
+            border_radius=16,
+            padding=ft.Padding(left=24, right=24, top=20, bottom=20),
+            content=ft.Column(
+                tight=True,
+                spacing=12,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Row(
+                                spacing=6,
+                                controls=[
+                                    ft.Icon(ft.Icons.PUSH_PIN, size=14, color="#26C6DA"),
+                                    ft.Text(
+                                        "Gasto no Caju",
+                                        size=15,
+                                        weight=ft.FontWeight.W_500,
+                                        color="#E0E0E0",
+                                    ),
+                                ],
+                            ),
+                            ft.IconButton(
+                                icon=ft.Icons.CLOSE,
+                                icon_color="#9E9E9E",
+                                icon_size=18,
+                                on_click=_fechar,
+                            ),
+                        ],
+                    ),
+                    ft.Divider(color="#ffffff10", height=1),
+                    campo_desc,
+                    ft.Row(spacing=8, controls=[campo_valor, campo_data]),
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.END,
+                        spacing=8,
+                        controls=[
+                            ft.TextButton("Cancelar", on_click=_fechar),
+                            ft.FilledButton(
+                                "Salvar",
+                                on_click=_salvar,
+                                style=ft.ButtonStyle(bgcolor="#26C6DA"),
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        )
+
+        modal = ft.Container(
+            expand=True,
+            bgcolor="#000000bb",
+            alignment=ft.Alignment(x=0, y=0),
+            content=painel,
+        )
+        modal_ref[0] = modal
+        self._abrir_modal(modal)
+
     def _construir_ilhas(self) -> list:
         resultado = []
 
@@ -2442,7 +2831,7 @@ class TelaMensal:
             on_click=lambda e: self._abrir_gerenciar_categorias(novo=True),
             content=ft.Icon(ft.Icons.ADD, color="#7C4DFF70", size=20),
         )
-        return resultado + [btn_nova_ilha]
+        return [self._card_caju()] + resultado + [btn_nova_ilha]
 
     # ------------------------------------------------------------------ #
     #  Construção da tela completa                                         #

@@ -45,6 +45,18 @@ def atualizar_valores_periodo(periodo_id: int, valor_dia_15: float, valor_dia_30
     conn.close()
 
 
+def atualizar_saldo_caju(periodo_id: int, valor: float):
+    """Salva o saldo inicial do Caju para o período."""
+    conn = obter_conexao()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE periodos SET saldo_caju = ? WHERE id = ?",
+        (valor, periodo_id),
+    )
+    conn.commit()
+    conn.close()
+
+
 def calcular_resumo(periodo_id: int) -> dict:
     """
     Calcula os totais do mês: quanto foi pago, quanto está pendente,
