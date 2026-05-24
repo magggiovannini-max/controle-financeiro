@@ -12,6 +12,7 @@ from models.lancamento import (
     reordenar_lancamentos,
     buscar_lancamentos_por_categoria,
     copiar_lancamentos_do_periodo,
+    buscar_lancamento,
 )
 from utils.formatters import formatar_moeda, nome_mes
 from database.connection import obter_conexao
@@ -20,6 +21,7 @@ from models.outro_recebimento import (
     atualizar_outro_recebimento,
     remover_outro_recebimento,
     buscar_outros_recebimentos,
+    buscar_outro_recebimento,
 )
 from models.categoria import (
     listar_categorias,
@@ -89,6 +91,8 @@ class TelaMensal:
         self._dragging_id = None      # ID do lançamento sendo arrastado
         self._dragging_cat_id = None  # ID da ilha de origem do arrasto
         self._dragging_ilha_id = None # ID da ilha sendo reordenada
+        self._undo_lancamento = None  # dados do último lançamento removido (desfazer)
+        self._undo_outro_rec  = None  # dados do último outro_rec removido (desfazer)
 
         # Card de recebimentos recolhível
         self._rec_expandido = True
@@ -589,7 +593,29 @@ class TelaMensal:
         self._abrir_modal(modal)
 
     def _remover_outro_rec(self, rec_id: int):
+        dado = buscar_outro_recebimento(rec_id)
+        self._undo_outro_rec = dado
         remover_outro_recebimento(rec_id)
+        self._atualizar_outros_rec()
+        self.resumo = calcular_resumo(self.periodo["id"])
+        self._resumo_row.controls = self._construir_resumo()
+        self.page.update()
+        if dado:
+            self._snackbar_desfazer(
+                f"'{dado['descricao']}' removido",
+                self._desfazer_outro_rec,
+            )
+
+    def _desfazer_outro_rec(self, e=None):
+        dado = self._undo_outro_rec
+        if not dado:
+            return
+        self._undo_outro_rec = None
+        criar_outro_recebimento(
+            periodo_id=dado["periodo_id"],
+            descricao=dado["descricao"],
+            valor=dado["valor"],
+        )
         self._atualizar_outros_rec()
         self.resumo = calcular_resumo(self.periodo["id"])
         self._resumo_row.controls = self._construir_resumo()
@@ -644,8 +670,47 @@ class TelaMensal:
         self._ilhas_row.controls = self._construir_ilhas()
         self.page.update()
 
+    # ------------------------------------------------------------------ #
+    #  Snackbar de desfazer                                               #
+    # ------------------------------------------------------------------ #
+
+    def _snackbar_desfazer(self, mensagem: str, callback):
+        self.page.snack_bar = ft.SnackBar(
+            content=ft.Text(mensagem, color="#E0E0E0"),
+            action="Desfazer",
+            action_color="#26C6DA",
+            on_action=callback,
+            bgcolor="#1e2235",
+        )
+        self.page.snack_bar.open = True
+        self.page.update()
+
     def _remover_lancamento(self, lancamento_id: int):
+        dado = buscar_lancamento(lancamento_id)
+        self._undo_lancamento = dado
         remover_lancamento(lancamento_id)
+        self.resumo = calcular_resumo(self.periodo["id"])
+        self._redesenhar()
+        if dado:
+            self._snackbar_desfazer(
+                f"'{dado['descricao']}' removido",
+                self._desfazer_lancamento,
+            )
+
+    def _desfazer_lancamento(self, e=None):
+        dado = self._undo_lancamento
+        if not dado:
+            return
+        self._undo_lancamento = None
+        criar_lancamento(
+            periodo_id=dado["periodo_id"],
+            categoria_id=dado["categoria_id"],
+            descricao=dado["descricao"],
+            valor=dado["valor"],
+            data_vencimento=dado.get("data_vencimento"),
+            origem_pagamento=dado["origem_pagamento"],
+            status=dado["status"],
+        )
         self.resumo = calcular_resumo(self.periodo["id"])
         self._redesenhar()
 

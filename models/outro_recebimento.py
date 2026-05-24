@@ -33,6 +33,16 @@ def remover_outro_recebimento(rec_id: int):
     conn.close()
 
 
+def buscar_outro_recebimento(rec_id: int) -> dict:
+    """Retorna os dados de um outro_recebimento pelo ID, ou None."""
+    conn = obter_conexao()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM outros_recebimentos WHERE id = ?", (rec_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
 def buscar_outros_recebimentos(periodo_id: int) -> list:
     conn = obter_conexao()
     cursor = conn.cursor()
