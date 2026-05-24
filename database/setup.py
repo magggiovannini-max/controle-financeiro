@@ -46,6 +46,16 @@ def criar_tabelas():
         )
     """)
 
+    # --- Tabela de recebimentos fixos (recorrentes todo mês, ex: Caju) ---
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS recebimentos_fixos (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            descricao TEXT NOT NULL,
+            valor     REAL NOT NULL,
+            ordem     INTEGER DEFAULT 0
+        )
+    """)
+
     # --- Tabela de lançamentos (cada gasto ou conta) ---
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS lancamentos (
