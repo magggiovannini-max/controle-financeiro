@@ -1886,12 +1886,26 @@ class TelaMensal:
                             ),
                         ],
                     ),
-                    ft.ProgressBar(
-                        value=min(pct, 1.0),
+                    # Barra de progresso manual (evita incompatibilidade Flet 0.85)
+                    ft.Container(
                         height=3,
-                        color=cor_bar,
+                        border_radius=2,
                         bgcolor="#ffffff10",
-                        border_radius=ft.border_radius.all(2),
+                        content=ft.Row(
+                            spacing=0,
+                            controls=[
+                                ft.Container(
+                                    height=3,
+                                    border_radius=2,
+                                    bgcolor=cor_bar,
+                                    expand=max(int(min(pct, 1.0) * 100), 1),
+                                ),
+                                ft.Container(
+                                    height=3,
+                                    expand=max(100 - int(min(pct, 1.0) * 100), 0) or None,
+                                ),
+                            ],
+                        ),
                     ),
                 ],
             )
