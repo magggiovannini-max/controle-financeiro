@@ -1521,7 +1521,7 @@ class TelaMensal:
     #  Gerenciar categorias                                                #
     # ------------------------------------------------------------------ #
 
-    def _abrir_gerenciar_categorias(self, novo: bool = False):
+    def _abrir_gerenciar_categorias(self, novo: bool = False, editar_id: int = None):
         editando  = [-1 if novo else None]  # cat_id em edição, -1 = nova, None = nenhuma
         cor_sel   = [_PALETA_CORES[0]]
         aviso_txt = ft.Text("", size=11, color="#EF5350", visible=False)
@@ -1779,6 +1779,15 @@ class TelaMensal:
         )
         modal_ref[0] = modal
         self._abrir_modal(modal)
+
+        # Se foi chamado com uma ilha específica, abre já no formulário dela
+        if editar_id is not None:
+            cat_alvo = next((c for c in listar_categorias() if c["id"] == editar_id), None)
+            if cat_alvo:
+                _iniciar_edicao(
+                    cat_alvo["id"], cat_alvo["nome"],
+                    cat_alvo["cor"], cat_alvo.get("orcamento"),
+                )
 
     # ------------------------------------------------------------------ #
     #  Construção visual                                                   #
@@ -2302,6 +2311,20 @@ class TelaMensal:
             self._ilhas_row.controls = self._construir_ilhas()
             self.page.update()
 
+        # Lápis discreto à esquerda do X, atalho para editar a ilha
+        edit_btn = ft.Container(
+            right=30,
+            top=6,
+            width=22,
+            height=22,
+            border_radius=11,
+            bgcolor="transparent",
+            alignment=ft.Alignment(x=0, y=0),
+            tooltip="Editar ilha",
+            on_click=lambda e, cid=cat["id"]: self._abrir_gerenciar_categorias(editar_id=cid),
+            content=ft.Icon(ft.Icons.EDIT_OUTLINED, size=11, color="#2e3f55"),
+        )
+
         # X discreto no canto superior direito da ilha
         delete_btn = ft.Container(
             right=6,
@@ -2338,7 +2361,7 @@ class TelaMensal:
             content=ft.Stack(
                 expand=True,
                 clip_behavior=ft.ClipBehavior.HARD_EDGE,
-                controls=[card_body, confirm_overlay, delete_btn],
+                controls=[card_body, confirm_overlay, edit_btn, delete_btn],
             ),
         )
 
