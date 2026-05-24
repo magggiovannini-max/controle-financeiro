@@ -2514,7 +2514,7 @@ class TelaMensal:
 
         # ── Chevron toggle ───────────────────────────────────────────
         chevron = ft.Icon(
-            name=ft.Icons.EXPAND_LESS if self._caju_expandido else ft.Icons.EXPAND_MORE,
+            ft.Icons.EXPAND_LESS if self._caju_expandido else ft.Icons.EXPAND_MORE,
             size=14,
             color="#26C6DA60",
         )
@@ -2522,7 +2522,7 @@ class TelaMensal:
         def _toggle(e):
             self._caju_expandido = not self._caju_expandido
             gastos_col.visible = self._caju_expandido
-            chevron.name = (
+            chevron.icon = (
                 ft.Icons.EXPAND_LESS if self._caju_expandido else ft.Icons.EXPAND_MORE
             )
             gastos_col.update()
