@@ -23,6 +23,12 @@ from models.outro_recebimento import (
     buscar_outros_recebimentos,
     buscar_outro_recebimento,
 )
+from models.recebimento_fixo import (
+    listar_recebimentos_fixos,
+    criar_recebimento_fixo,
+    atualizar_recebimento_fixo,
+    remover_recebimento_fixo,
+)
 from models.categoria import (
     listar_categorias,
     criar_categoria,
@@ -182,21 +188,84 @@ class TelaMensal:
 
     def _atualizar_outros_rec(self):
         """Busca os outros recebimentos do DB e actualiza a coluna visual."""
+        fixos  = listar_recebimentos_fixos()
         outros = buscar_outros_recebimentos(self.periodo["id"])
-        self.total_outros = sum(r["valor"] for r in outros)
-        self._outros_rec_col.controls = self._construir_outros_items(outros)
+        self.total_outros = (
+            sum(r["valor"] for r in fixos) + sum(r["valor"] for r in outros)
+        )
+        self._outros_rec_col.controls = (
+            self._construir_fixos_items(fixos) + self._construir_outros_items(outros)
+        )
         self._outros_rec_total_text.value = (
             formatar_moeda(self.total_outros) if self.total_outros > 0 else ""
         )
-        # Altura dinâmica: ≤ 3 itens → cresce livre; > 3 → trava com peek
-        # do 4º item (~40% visível), sinalizando que há mais para rolar.
-        # Cada item ocupa ≈ 27px (padding 4+4, texto 13pt, spacing 3).
-        if len(outros) > 3:
+        total_itens = len(fixos) + len(outros)
+        if total_itens > 3:
             self._outros_rec_col.scroll = ft.ScrollMode.AUTO
-            self._outros_rec_scroll_box.height = 92   # 3 itens + peek do 4º
+            self._outros_rec_scroll_box.height = 92
         else:
             self._outros_rec_col.scroll = None
             self._outros_rec_scroll_box.height = None
+
+    def _construir_fixos_items(self, fixos: list) -> list:
+        """Constrói as linhas dos recebimentos fixos (com ícone de pin)."""
+        linhas = []
+        for fix in fixos:
+            linha = ft.Container(
+                padding=ft.Padding(left=8, right=4, top=4, bottom=4),
+                border_radius=8,
+                bgcolor="#0e1f14",
+                content=ft.Row(
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    controls=[
+                        ft.Row(
+                            spacing=8,
+                            expand=True,
+                            controls=[
+                                ft.Icon(ft.Icons.PUSH_PIN, size=11, color="#66BB6A90"),
+                                ft.Text(
+                                    fix["descricao"],
+                                    size=13,
+                                    color="#C0C0C0",
+                                    expand=True,
+                                    no_wrap=True,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                ),
+                            ],
+                        ),
+                        ft.Row(
+                            spacing=4,
+                            controls=[
+                                ft.Text(
+                                    formatar_moeda(fix["valor"]),
+                                    size=13,
+                                    color="#66BB6A",
+                                ),
+                                ft.Container(
+                                    content=ft.Icon(
+                                        ft.Icons.EDIT_OUTLINED, color="#66BB6A60", size=15
+                                    ),
+                                    padding=ft.Padding(left=4, right=2, top=4, bottom=4),
+                                    border_radius=4,
+                                    tooltip="Editar",
+                                    on_click=lambda e, f=dict(fix): self._abrir_form_edicao_fixo(f),
+                                ),
+                                ft.Container(
+                                    content=ft.Icon(
+                                        ft.Icons.DELETE_OUTLINE, color="#EF535060", size=15
+                                    ),
+                                    padding=ft.Padding(left=2, right=4, top=4, bottom=4),
+                                    border_radius=4,
+                                    tooltip="Remover recebimento fixo",
+                                    on_click=lambda e, fid=fix["id"]: self._remover_fixo(fid),
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+            )
+            linhas.append(linha)
+        return linhas
 
     def _construir_outros_items(self, outros: list) -> list:
         """Constrói as linhas de outros recebimentos com o mesmo design das ilhas."""
@@ -363,6 +432,13 @@ class TelaMensal:
             focused_border_color="#66BB6A",
             cursor_color="#66BB6A",
         )
+        recorrente_check = ft.Checkbox(
+            label="Recorrente (todo mês)",
+            value=False,
+            check_color="#66BB6A",
+            active_color="#66BB6A",
+            label_style=ft.TextStyle(size=12, color="#9E9E9E"),
+        )
 
         modal_ref = [None]
 
@@ -394,9 +470,13 @@ class TelaMensal:
                 return
 
             try:
-                criar_outro_recebimento(
-                    self.periodo["id"], campo_desc.value.strip(), valor
-                )
+                if recorrente_check.value:
+                    # Salva como recebimento fixo global (aparece em todo mês)
+                    criar_recebimento_fixo(campo_desc.value.strip(), valor)
+                else:
+                    criar_outro_recebimento(
+                        self.periodo["id"], campo_desc.value.strip(), valor
+                    )
             except Exception as ex:
                 campo_desc.error_text = f"Erro: {ex}"
                 self.page.update()
@@ -447,6 +527,7 @@ class TelaMensal:
                     ft.Divider(color="#ffffff10", height=1),
                     campo_desc,
                     campo_valor,
+                    recorrente_check,
                     ft.Row(
                         alignment=ft.MainAxisAlignment.END,
                         spacing=12,
@@ -588,6 +669,109 @@ class TelaMensal:
             bgcolor="#000000bb",
             alignment=ft.Alignment(x=0, y=0),
             content=painel,
+        )
+        modal_ref[0] = modal
+        self._abrir_modal(modal)
+
+    def _remover_fixo(self, fix_id: int):
+        remover_recebimento_fixo(fix_id)
+        self._atualizar_outros_rec()
+        self.resumo = calcular_resumo(self.periodo["id"])
+        self._resumo_row.controls = self._construir_resumo()
+        self.page.update()
+
+    def _abrir_form_edicao_fixo(self, fix: dict):
+        """Modal para editar descrição e valor de um recebimento fixo."""
+        campo_desc = ft.TextField(
+            label="Descrição",
+            value=fix["descricao"],
+            autofocus=True,
+            border_color="#66BB6A",
+            focused_border_color="#66BB6A",
+            cursor_color="#66BB6A",
+        )
+        campo_valor = ft.TextField(
+            label="Valor",
+            prefix=ft.Text("R$ "),
+            keyboard_type=ft.KeyboardType.NUMBER,
+            value=str(fix["valor"]).replace(".", ","),
+            border_color="#66BB6A",
+            focused_border_color="#66BB6A",
+            cursor_color="#66BB6A",
+        )
+        modal_ref = [None]
+
+        def _fechar():
+            if modal_ref[0]:
+                self._fechar_modal(modal_ref[0])
+
+        def salvar(e):
+            desc = (campo_desc.value or "").strip()
+            if not desc:
+                campo_desc.error_text = "Campo obrigatório"
+                self.page.update()
+                return
+            try:
+                valor = float((campo_valor.value or "").replace(",", ".").strip())
+                if valor <= 0:
+                    raise ValueError()
+            except ValueError:
+                campo_valor.error_text = "Valor inválido"
+                self.page.update()
+                return
+            atualizar_recebimento_fixo(fix["id"], desc, valor)
+            _fechar()
+            self._atualizar_outros_rec()
+            self.resumo = calcular_resumo(self.periodo["id"])
+            self._resumo_row.controls = self._construir_resumo()
+            self.page.update()
+
+        painel = ft.Container(
+            width=380,
+            bgcolor="#1e2235",
+            border_radius=16,
+            padding=ft.Padding(left=24, right=24, top=20, bottom=20),
+            content=ft.Column(
+                tight=True,
+                spacing=12,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Row(spacing=8, controls=[
+                                ft.Icon(ft.Icons.PUSH_PIN, size=14, color="#66BB6A"),
+                                ft.Text("Editar recebimento fixo", size=15,
+                                        weight=ft.FontWeight.W_500, color="#E0E0E0"),
+                            ]),
+                            ft.IconButton(icon=ft.Icons.CLOSE, icon_color="#9E9E9E",
+                                          icon_size=18, on_click=lambda e: _fechar()),
+                        ],
+                    ),
+                    ft.Divider(color="#ffffff10", height=1),
+                    campo_desc,
+                    campo_valor,
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.END,
+                        spacing=12,
+                        controls=[
+                            ft.TextButton("Cancelar", on_click=lambda e: _fechar()),
+                            ft.FilledButton(
+                                "Salvar",
+                                style=ft.ButtonStyle(
+                                    bgcolor={"": "#66BB6A"},
+                                    color={"": "#000000"},
+                                ),
+                                on_click=salvar,
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        )
+        modal = ft.Container(
+            expand=True, bgcolor="#000000bb",
+            alignment=ft.Alignment(x=0, y=0), content=painel,
         )
         modal_ref[0] = modal
         self._abrir_modal(modal)
