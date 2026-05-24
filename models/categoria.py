@@ -25,12 +25,12 @@ def criar_categoria(nome: str, cor: str) -> int:
     return novo_id
 
 
-def atualizar_categoria(cat_id: int, nome: str, cor: str):
+def atualizar_categoria(cat_id: int, nome: str, cor: str, orcamento: float = None):
     conn = obter_conexao()
     cursor = conn.cursor()
     cursor.execute(
-        "UPDATE categorias SET nome = ?, cor = ? WHERE id = ?",
-        (nome, cor, cat_id),
+        "UPDATE categorias SET nome = ?, cor = ?, orcamento = ? WHERE id = ?",
+        (nome, cor, orcamento, cat_id),
     )
     conn.commit()
     conn.close()

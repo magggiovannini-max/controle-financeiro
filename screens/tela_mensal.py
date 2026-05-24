@@ -1535,6 +1535,17 @@ class TelaMensal:
             dense=True,
             color="#E0E0E0",
         )
+        campo_orcamento = ft.TextField(
+            hint_text="Opcional, ex: 390",
+            label="Orçamento mensal (R$)",
+            prefix=ft.Text("R$ "),
+            keyboard_type=ft.KeyboardType.NUMBER,
+            border_color="#7C4DFF",
+            focused_border_color="#7C4DFF",
+            cursor_color="#7C4DFF",
+            dense=True,
+            color="#E0E0E0",
+        )
 
         lista_col = ft.Column(spacing=4)
         modal_ref = [None]
@@ -1579,6 +1590,7 @@ class TelaMensal:
                     controls=[
                         campo_nome,
                         _cor_picker(),
+                        campo_orcamento,
                         ft.Row(
                             alignment=ft.MainAxisAlignment.END,
                             spacing=8,
@@ -1595,19 +1607,26 @@ class TelaMensal:
             cor_sel[0] = cor
             _rebuild()
 
-        def _iniciar_edicao(cat_id, nome, cor):
-            editando[0]   = cat_id
-            cor_sel[0]    = cor
-            campo_nome.value       = nome
-            campo_nome.error_text  = None
+        def _iniciar_edicao(cat_id, nome, cor, orcamento=None):
+            editando[0]          = cat_id
+            cor_sel[0]           = cor
+            campo_nome.value     = nome
+            campo_nome.error_text = None
+            campo_orcamento.value = (
+                str(int(orcamento)) if orcamento and orcamento == int(orcamento)
+                else f"{orcamento:.2f}".replace(".", ",") if orcamento else ""
+            )
+            campo_orcamento.error_text = None
             aviso_txt.visible = False
             _rebuild()
 
         def _iniciar_novo():
-            editando[0]   = -1
-            cor_sel[0]    = _PALETA_CORES[0]
-            campo_nome.value       = ""
-            campo_nome.error_text  = None
+            editando[0]          = -1
+            cor_sel[0]           = _PALETA_CORES[0]
+            campo_nome.value     = ""
+            campo_nome.error_text = None
+            campo_orcamento.value = ""
+            campo_orcamento.error_text = None
             aviso_txt.visible = False
             _rebuild()
 
@@ -1623,10 +1642,23 @@ class TelaMensal:
                 lista_col.update()
                 return
             campo_nome.error_text = None
+            # Orçamento é opcional — vazio = sem orçamento
+            orcamento = None
+            raw_orc = (campo_orcamento.value or "").replace(",", ".").strip()
+            if raw_orc:
+                try:
+                    orcamento = float(raw_orc)
+                    if orcamento <= 0:
+                        orcamento = None
+                    campo_orcamento.error_text = None
+                except ValueError:
+                    campo_orcamento.error_text = "Valor inválido"
+                    lista_col.update()
+                    return
             if editando[0] == -1:
                 criar_categoria(nome, cor_sel[0])
             else:
-                atualizar_categoria(editando[0], nome, cor_sel[0])
+                atualizar_categoria(editando[0], nome, cor_sel[0], orcamento)
             editando[0] = None
             aviso_txt.visible = False
             _rebuild()
@@ -1672,7 +1704,7 @@ class TelaMensal:
                                             padding=ft.Padding(left=4, right=2, top=4, bottom=4),
                                             border_radius=4,
                                             tooltip="Editar",
-                                            on_click=lambda e, c=cat: _iniciar_edicao(c["id"], c["nome"], c["cor"]),
+                                            on_click=lambda e, c=cat: _iniciar_edicao(c["id"], c["nome"], c["cor"], c.get("orcamento")),
                                         ),
                                         ft.Container(
                                             content=ft.Icon(ft.Icons.DELETE_OUTLINE, color="#EF535060", size=15),
@@ -1790,57 +1822,109 @@ class TelaMensal:
         lancamentos = buscar_lancamentos_por_categoria(self.periodo["id"], cat["id"])
         total = sum(l["valor"] for l in lancamentos)
         todos_pagos = bool(lancamentos) and all(l["status"] == "pago" for l in lancamentos)
+        orcamento = cat.get("orcamento") or 0.0
 
-        header = ft.Row(
-            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            controls=[
-                ft.Container(
-                    bgcolor="#1a2848",
-                    border_radius=6,
-                    padding=ft.Padding(left=10, right=12, top=5, bottom=5),
-                    border=ft.Border(
-                        left=ft.BorderSide(3, cat["cor"]),
-                        right=ft.BorderSide(0, "transparent"),
-                        top=ft.BorderSide(0, "transparent"),
-                        bottom=ft.BorderSide(0, "transparent"),
-                    ),
-                    content=ft.Text(
-                        cat["nome"],
-                        size=12,
-                        weight=ft.FontWeight.W_600,
-                        color=cat["cor"],
-                    ),
-                ),
-                ft.Row(
-                    spacing=4,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[
-                        ft.Container(
-                            visible=todos_pagos,
-                            content=ft.Icon(
-                                ft.Icons.CHECK_CIRCLE_OUTLINE,
-                                color="#66BB6A",
-                                size=14,
-                            ),
-                        ),
-                        ft.Text(
-                            formatar_moeda(total),
-                            size=13,
-                            color="#66BB6A" if todos_pagos else "#9E9E9E",
-                            weight=ft.FontWeight.W_500,
-                        ),
-                        ft.IconButton(
-                            icon=ft.Icons.ADD_CIRCLE_OUTLINE,
-                            icon_color=cat["cor"],
-                            icon_size=20,
-                            tooltip="Adicionar lançamento",
-                            on_click=lambda e, c=cat: self._abrir_form_lancamento(c),
-                        ),
-                    ],
-                ),
-            ],
+        # Bloco do título (igual em todos os modos)
+        title_box = ft.Container(
+            bgcolor="#1a2848",
+            border_radius=6,
+            padding=ft.Padding(left=10, right=12, top=5, bottom=5),
+            border=ft.Border(
+                left=ft.BorderSide(3, cat["cor"]),
+                right=ft.BorderSide(0, "transparent"),
+                top=ft.BorderSide(0, "transparent"),
+                bottom=ft.BorderSide(0, "transparent"),
+            ),
+            content=ft.Text(cat["nome"], size=12, weight=ft.FontWeight.W_600, color=cat["cor"]),
         )
+
+        add_btn = ft.IconButton(
+            icon=ft.Icons.ADD_CIRCLE_OUTLINE,
+            icon_color=cat["cor"],
+            icon_size=20,
+            tooltip="Adicionar lançamento",
+            on_click=lambda e, c=cat: self._abrir_form_lancamento(c),
+        )
+
+        if orcamento > 0:
+            # ── Modo orçamento: barra de progresso ──────────────────────
+            pct      = total / orcamento
+            cor_bar  = cat["cor"] if pct < 0.7 else ("#FFA726" if pct < 0.9 else "#EF5350")
+            livre    = orcamento - total
+            header = ft.Column(
+                spacing=4,
+                controls=[
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            title_box,
+                            ft.Row(
+                                spacing=4,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                controls=[
+                                    ft.Column(
+                                        spacing=1,
+                                        horizontal_alignment=ft.CrossAxisAlignment.END,
+                                        tight=True,
+                                        controls=[
+                                            ft.Text(
+                                                f"{formatar_moeda(total)} / {formatar_moeda(orcamento)}",
+                                                size=11,
+                                                color=cor_bar,
+                                                weight=ft.FontWeight.W_500,
+                                            ),
+                                            ft.Text(
+                                                f"livre {formatar_moeda(max(livre, 0.0))}",
+                                                size=10,
+                                                color="#EF5350" if livre < 0 else "#9E9E9E",
+                                            ),
+                                        ],
+                                    ),
+                                    add_btn,
+                                ],
+                            ),
+                        ],
+                    ),
+                    ft.ProgressBar(
+                        value=min(pct, 1.0),
+                        height=3,
+                        color=cor_bar,
+                        bgcolor="#ffffff10",
+                        border_radius=ft.border_radius.all(2),
+                    ),
+                ],
+            )
+        else:
+            # ── Modo padrão ─────────────────────────────────────────────
+            header = ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    title_box,
+                    ft.Row(
+                        spacing=4,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        controls=[
+                            ft.Container(
+                                visible=todos_pagos,
+                                content=ft.Icon(
+                                    ft.Icons.CHECK_CIRCLE_OUTLINE,
+                                    color="#66BB6A",
+                                    size=14,
+                                ),
+                            ),
+                            ft.Text(
+                                formatar_moeda(total),
+                                size=13,
+                                color="#66BB6A" if todos_pagos else "#9E9E9E",
+                                weight=ft.FontWeight.W_500,
+                            ),
+                            add_btn,
+                        ],
+                    ),
+                ],
+            )
 
         # Mapa id → índice para determinar direção do arrasto no indicador visual
         id_to_idx = {l["id"]: i for i, l in enumerate(lancamentos)}
