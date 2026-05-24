@@ -127,6 +127,12 @@ def migrar_banco():
         conn.commit()
     except Exception:
         pass
+    # Coluna orcamento em categorias (orçamento mensal opcional por ilha)
+    try:
+        cursor.execute("ALTER TABLE categorias ADD COLUMN orcamento REAL DEFAULT NULL")
+        conn.commit()
+    except Exception:
+        pass
     # Tabela outros_recebimentos pode não existir em bancos antigos
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS outros_recebimentos (
