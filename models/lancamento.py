@@ -91,6 +91,16 @@ def mover_lancamento(lancamento_id: int, nova_categoria_id: int):
     conn.close()
 
 
+def buscar_lancamento(lancamento_id: int) -> dict:
+    """Retorna os dados de um lançamento pelo ID, ou None se não encontrado."""
+    conn = obter_conexao()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM lancamentos WHERE id = ?", (lancamento_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
 def buscar_lancamentos_por_categoria(periodo_id: int, categoria_id: int) -> list:
     conn = obter_conexao()
     cursor = conn.cursor()
