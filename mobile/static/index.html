@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#14142b">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Quinza">
+  <title>Quinza</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/static/icons/icon-180.png">
+  <link rel="icon" type="image/png" href="/static/icons/icon-192.png">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <!-- Login -->
+  <section id="tela-login" class="tela" hidden>
+    <div class="login-box">
+      <div class="logo">Q</div>
+      <h1>Quinza</h1>
+      <p class="sutil">Digite sua senha para entrar</p>
+      <form id="form-login">
+        <input id="senha" type="password" placeholder="Senha" autocomplete="current-password" required>
+        <button class="btn primario" type="submit">Entrar</button>
+        <p id="erro-login" class="erro" hidden></p>
+      </form>
+    </div>
+  </section>
+
+  <main id="app" hidden>
+    <!-- Lançar -->
+    <section id="tela-lancar" class="tela">
+      <header class="topo"><h1>Novo gasto</h1></header>
+
+      <div id="area-gravar" class="area-gravar">
+        <button id="btn-mic" class="mic" aria-label="Gravar áudio">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>
+        </button>
+        <p id="status-mic" class="sutil">Toque e fale seus gastos</p>
+        <p class="dica">Ex: “gastei 45,90 no iFood e 25 de Uber no pix”</p>
+      </div>
+
+      <form id="form-texto" class="form-texto">
+        <input id="texto" type="text" placeholder="ou digite: 32 almoço no caju" autocomplete="off" enterkeyhint="send">
+        <button class="btn-icone" type="submit" aria-label="Enviar">➤</button>
+      </form>
+
+      <div id="propostas" hidden>
+        <p id="transcricao" class="transcricao"></p>
+        <p id="observacao" class="observacao" hidden></p>
+        <div id="lista-propostas"></div>
+        <button id="btn-add-manual" class="btn fantasma">+ Adicionar item</button>
+        <div class="acoes">
+          <button id="btn-descartar" class="btn secundario">Descartar</button>
+          <button id="btn-confirmar" class="btn primario">Salvar</button>
+        </div>
+      </div>
+
+      <div id="recentes-box">
+        <h2 class="subtitulo">Últimos lançamentos</h2>
+        <div id="recentes"></div>
+      </div>
+    </section>
+
+    <!-- Gastos do mês -->
+    <section id="tela-gastos" class="tela" hidden>
+      <header class="topo">
+        <button class="btn-icone nav-mes" data-delta="-1" aria-label="Mês anterior">‹</button>
+        <h1 class="titulo-mes"></h1>
+        <button class="btn-icone nav-mes" data-delta="1" aria-label="Próximo mês">›</button>
+      </header>
+      <div class="total-mes"><span class="sutil">Total</span><strong id="total-gastos">—</strong></div>
+      <div id="lista-gastos"></div>
+    </section>
+
+    <!-- Resumo -->
+    <section id="tela-resumo" class="tela" hidden>
+      <header class="topo">
+        <button class="btn-icone nav-mes" data-delta="-1" aria-label="Mês anterior">‹</button>
+        <h1 class="titulo-mes"></h1>
+        <button class="btn-icone nav-mes" data-delta="1" aria-label="Próximo mês">›</button>
+      </header>
+      <div class="card destaque">
+        <span class="sutil">Gasto no mês</span>
+        <strong id="resumo-total" class="grande">—</strong>
+        <span id="resumo-comparacao" class="sutil"></span>
+      </div>
+      <div id="resumo-categorias"></div>
+    </section>
+
+    <!-- Ajustes -->
+    <section id="tela-ajustes" class="tela" hidden>
+      <header class="topo"><h1>Categorias</h1></header>
+      <div id="lista-categorias"></div>
+      <button id="btn-nova-categoria" class="btn fantasma">+ Nova categoria</button>
+      <button id="btn-sair" class="btn secundario sair">Sair</button>
+    </section>
+
+    <nav class="abas">
+      <button data-tela="lancar" class="ativa"><span>🎙️</span>Lançar</button>
+      <button data-tela="gastos"><span>📋</span>Gastos</button>
+      <button data-tela="resumo"><span>📊</span>Resumo</button>
+      <button data-tela="ajustes"><span>⚙️</span>Ajustes</button>
+    </nav>
+  </main>
+
+  <!-- Folha de edição (gasto ou categoria) -->
+  <div id="folha-fundo" class="folha-fundo" hidden></div>
+  <div id="folha" class="folha" hidden></div>
+
+  <div id="aviso" class="aviso" hidden></div>
+  <div id="carregando" class="carregando" hidden><div class="spinner"></div><p id="carregando-txt">Processando…</p></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
